@@ -39,6 +39,8 @@ class ShampooreVpnService : VpnService() {
     @Volatile private var validated = false
     private var validationJob: Job? = null
 
+    @Volatile private var callbackRegistered = false
+
     private val connectivityManager by lazy {
         getSystemService(ConnectivityManager::class.java)
     }
@@ -49,6 +51,7 @@ class ShampooreVpnService : VpnService() {
             if (!caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)) return
             if (validated) return
 
+            Log.i(TAG, "VPN network validated")
             validated = true
             if (awaitingValidation) {
                 awaitingValidation = false
@@ -71,16 +74,27 @@ class ShampooreVpnService : VpnService() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        Log.i(TAG, "onStartCommand action=${intent?.action}")
         when (intent?.action) {
             ACTION_CONNECT -> {
-                val src = intent.getStringExtra(EXTRA_CONFIG) ?: return START_NOT_STICKY
+                val src = intent.getStringExtra(EXTRA_CONFIG) ?: run {
+                    Log.e(TAG, "ACTION_CONNECT without EXTRA_CONFIG")
+                    return START_NOT_STICKY
+                }
                 cancelling = false
                 stopping = false
                 createNotificationChannel()
-                startForeground(NOTIFICATION_ID, buildNotification("Connecting..."))
+                try {
+                    startForeground(NOTIFICATION_ID, buildNotification("Connecting..."))
+                } catch (t: Throwable) {
+                    Log.e(TAG, "startForeground failed", t)
+                    stopSelf()
+                    return START_NOT_STICKY
+                }
                 startVpn(src)
             }
             ACTION_DISCONNECT -> stopVpn()
+            else -> Log.w(TAG, "unknown action: ${intent?.action}")
         }
         return START_NOT_STICKY
     }
@@ -88,6 +102,8 @@ class ShampooreVpnService : VpnService() {
     private fun startVpn(source: String) {
         scope.launch {
             try {
+                Log.i(TAG, "startVpn begin source=${source.take(120)}")
+
                 val builder = Builder()
                     .setSession("Shampoore")
                     .setMtu(1500)
@@ -103,8 +119,10 @@ class ShampooreVpnService : VpnService() {
                     Log.w(TAG, "addDisallowedApplication failed", e)
                 }
 
+                Log.d(TAG, "establishing VPN interface")
                 val pfd = builder.establish()
                 if (pfd == null) {
+                    Log.e(TAG, "builder.establish() returned null")
                     stopVpn(silent = true)
                     return@launch
                 }
@@ -114,6 +132,7 @@ class ShampooreVpnService : VpnService() {
                 } finally {
                     runCatching { pfd.close() }
                 }
+                Log.i(TAG, "VPN interface established fd=$rawFd")
 
                 synchronized(fdLock) {
                     currentFd = rawFd
@@ -121,19 +140,23 @@ class ShampooreVpnService : VpnService() {
                 }
 
                 if (cancelling) {
+                    Log.w(TAG, "cancelled before Go start")
                     closeFdIfNotHanded()
                     return@launch
                 }
 
                 try {
                     connectivityManager.registerDefaultNetworkCallback(networkCallback)
+                    callbackRegistered = true
                 } catch (t: Throwable) {
                     Log.w(TAG, "registerDefaultNetworkCallback failed", t)
                 }
 
+                Log.i(TAG, "calling Mobile.startClientVPN")
                 val err = Mobile.startClientVPN(source, rawFd.toLong(), 1500L)
 
                 if (err.isEmpty()) {
+                    Log.i(TAG, "Mobile.startClientVPN success")
                     synchronized(fdLock) {
                         fdHandedToGo = true
                         currentFd = -1
@@ -156,14 +179,13 @@ class ShampooreVpnService : VpnService() {
                     }
                     startValidationTimeout()
                 } else {
+                    Log.e(TAG, "Mobile.startClientVPN failed: $err")
                     closeFdIfNotHanded()
-                    unregisterCallbackSafe()
                     stopVpn(silent = true)
                 }
             } catch (t: Throwable) {
                 Log.e(TAG, "startVpn failed", t)
                 closeFdIfNotHanded()
-                unregisterCallbackSafe()
                 stopVpn(silent = true)
             }
         }
@@ -176,12 +198,14 @@ class ShampooreVpnService : VpnService() {
             if (!awaitingValidation) return@launch
             awaitingValidation = false
             if (cancelling) return@launch
-            unregisterCallbackSafe()
+            Log.w(TAG, "validation timeout")
             stopVpn(silent = true)
         }
     }
 
     private fun unregisterCallbackSafe() {
+        if (!callbackRegistered) return
+        callbackRegistered = false
         try {
             connectivityManager.unregisterNetworkCallback(networkCallback)
         } catch (_: Throwable) {

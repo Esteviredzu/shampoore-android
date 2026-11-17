@@ -14,6 +14,8 @@
 .cxx
 local.properties
 *.aar
-
+/app/libs/shampoore.aar
+/app/libs/shampoore.aar.version
+/app/libs/shampoore.aar.tmp
 
 

@@ -10,12 +10,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.ArrowDropDown
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.PowerSettingsNew
-import androidx.compose.material.icons.filled.Shield
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -23,11 +18,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Dialog
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.shampoore.app.data.VpnConfig
 import dev.shampoore.app.viewmodel.MainViewModel
@@ -38,16 +31,16 @@ import dev.shampoore.app.vpn.VpnState
 fun ConnectScreen(
     viewModel: MainViewModel,
     onConnect: (String) -> Unit,
-    onDisconnect: () -> Unit
+    onDisconnect: () -> Unit,
+    onOpenStats: () -> Unit,
+    onOpenAdd: () -> Unit,
+    onOpenEdit: (VpnConfig) -> Unit
 ) {
     val vpnState by viewModel.vpnState.collectAsStateWithLifecycle()
     val configs by viewModel.configs.collectAsStateWithLifecycle()
     val selectedConfig by viewModel.selectedConfig.collectAsStateWithLifecycle()
 
-    var showAddDialog by remember { mutableStateOf(false) }
     var showConfigSheet by remember { mutableStateOf(false) }
-    var editingConfig by remember { mutableStateOf<VpnConfig?>(null) }
-    var deletingConfig by remember { mutableStateOf<VpnConfig?>(null) }
 
     val isConnected = vpnState is VpnState.Connected
     val isConnecting = vpnState is VpnState.Connecting
@@ -71,153 +64,175 @@ fun ConnectScreen(
         label = "scale"
     )
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(24.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
-    ) {
-        val gradientColors = when {
-            isConnected -> listOf(
-                MaterialTheme.colorScheme.primary,
-                MaterialTheme.colorScheme.tertiary
-            )
-            !buttonEnabled -> listOf(
-                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
-                MaterialTheme.colorScheme.surface.copy(alpha = 0.3f)
-            )
-            else -> listOf(
-                MaterialTheme.colorScheme.surfaceVariant,
-                MaterialTheme.colorScheme.surface
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Shampoore", style = MaterialTheme.typography.titleLarge) },
+                actions = {
+                    IconButton(onClick = onOpenStats) {
+                        Icon(Icons.Filled.BarChart, contentDescription = "Statistics")
+                    }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.background
+                )
             )
         }
-        val iconTint = when {
-            isConnected -> MaterialTheme.colorScheme.onPrimary
-            !buttonEnabled -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
-            else -> MaterialTheme.colorScheme.onSurfaceVariant
-        }
-
-        Box(
-            contentAlignment = Alignment.Center,
+    ) { padding ->
+        Column(
             modifier = Modifier
-                .size(240.dp)
-                .scale(scale)
-                .clip(CircleShape)
-                .background(brush = Brush.linearGradient(colors = gradientColors))
-                .clickable(
-                    enabled = buttonEnabled,
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null
-                ) {
-                    when (vpnState) {
-                        is VpnState.Connected -> onDisconnect()
-                        is VpnState.Connecting -> onDisconnect()
-                        is VpnState.Disconnected ->
-                            selectedConfig?.let { onConnect(it.source) }
-                        else -> Unit
-                    }
-                }
+                .fillMaxSize()
+                .padding(padding)
+                .padding(horizontal = 24.dp, vertical = 16.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            if (isConnecting || isDisconnecting) {
-                CircularProgressIndicator(
-                    modifier = Modifier.size(100.dp),
-                    color = MaterialTheme.colorScheme.primary,
-                    strokeWidth = 6.dp
+            Spacer(modifier = Modifier.weight(1f))
+
+            // Main Connect Button
+            val gradientColors = when {
+                isConnected -> listOf(
+                    MaterialTheme.colorScheme.primary,
+                    MaterialTheme.colorScheme.tertiary
                 )
-            } else {
-                Icon(
-                    imageVector = if (isConnected) Icons.Filled.Shield else Icons.Filled.PowerSettingsNew,
-                    contentDescription = "Connect",
-                    modifier = Modifier.size(100.dp),
-                    tint = iconTint
+                !buttonEnabled -> listOf(
+                    MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+                    MaterialTheme.colorScheme.surface.copy(alpha = 0.3f)
+                )
+                else -> listOf(
+                    MaterialTheme.colorScheme.surfaceVariant,
+                    MaterialTheme.colorScheme.surface
                 )
             }
-        }
+            val iconTint = when {
+                isConnected -> MaterialTheme.colorScheme.onPrimary
+                !buttonEnabled -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+                else -> MaterialTheme.colorScheme.onSurfaceVariant
+            }
 
-        Spacer(modifier = Modifier.height(24.dp))
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier
+                    .size(220.dp)
+                    .scale(scale)
+                    .clip(CircleShape)
+                    .background(brush = Brush.linearGradient(colors = gradientColors))
+                    .clickable(
+                        enabled = buttonEnabled,
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null
+                    ) {
+                        when (vpnState) {
+                            is VpnState.Connected -> onDisconnect()
+                            is VpnState.Connecting -> onDisconnect()
+                            is VpnState.Disconnected -> selectedConfig?.let { onConnect(it.source) }
+                            else -> Unit
+                        }
+                    }
+            ) {
+                if (isConnecting || isDisconnecting) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(80.dp),
+                        color = MaterialTheme.colorScheme.primary,
+                        strokeWidth = 6.dp
+                    )
+                } else {
+                    Icon(
+                        imageVector = if (isConnected) Icons.Filled.Shield else Icons.Filled.PowerSettingsNew,
+                        contentDescription = "Connect",
+                        modifier = Modifier.size(90.dp),
+                        tint = iconTint
+                    )
+                }
+            }
 
-        val statusText = when (vpnState) {
-            is VpnState.Connected -> "Connected"
-            is VpnState.Connecting -> "Connecting..."
-            is VpnState.Disconnecting -> "Disconnecting..."
-            is VpnState.Disconnected -> "Not connected"
-        }
+            Spacer(modifier = Modifier.height(32.dp))
 
-        Text(
-            text = statusText,
-            style = MaterialTheme.typography.headlineSmall,
-            textAlign = TextAlign.Center
-        )
+            val statusText = when (vpnState) {
+                is VpnState.Connected -> "Connected"
+                is VpnState.Connecting -> "Connecting..."
+                is VpnState.Disconnecting -> "Disconnecting..."
+                is VpnState.Disconnected -> "Not connected"
+            }
 
-        if (selectedConfig == null && !isConnected && !isConnecting) {
-            Spacer(modifier = Modifier.height(8.dp))
             Text(
-                text = "Select or add a configuration",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = TextAlign.Center
+                text = statusText,
+                style = MaterialTheme.typography.headlineMedium,
+                textAlign = TextAlign.Center,
+                fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold
             )
-        }
 
-        Spacer(modifier = Modifier.height(32.dp))
-
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Surface(
-                onClick = { showAddDialog = true },
-                modifier = Modifier.size(56.dp),
-                shape = CircleShape,
-                color = MaterialTheme.colorScheme.primaryContainer,
-                contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                tonalElevation = 2.dp
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(
-                        imageVector = Icons.Filled.Add,
-                        contentDescription = "Add configuration"
-                    )
-                }
+            if (selectedConfig == null && !isConnected && !isConnecting) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = "Select or add a configuration",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center
+                )
             }
 
-            Spacer(Modifier.width(12.dp))
+            Spacer(modifier = Modifier.weight(1f))
 
-            Surface(
-                onClick = { showConfigSheet = true },
-                modifier = Modifier.weight(1f),
-                shape = RoundedCornerShape(50),
-                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                tonalElevation = 2.dp
+            // Bottom Row: Add Button + Config Selector
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(64.dp), // Fixed height for uniformity
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 20.dp, vertical = 16.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+                Surface(
+                    onClick = onOpenAdd,
+                    modifier = Modifier.size(64.dp),
+                    shape = CircleShape,
+                    color = MaterialTheme.colorScheme.primaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                    tonalElevation = 4.dp
                 ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = "Configuration",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Text(
-                            text = selectedConfig?.name ?: "Select config",
-                            style = MaterialTheme.typography.bodyLarge,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(Icons.Filled.Add, contentDescription = "Add configuration")
+                    }
+                }
+
+                Spacer(Modifier.width(12.dp))
+
+                Surface(
+                    onClick = { showConfigSheet = true },
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxHeight(),
+                    shape = RoundedCornerShape(32.dp),
+                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    tonalElevation = 2.dp
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(horizontal = 24.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column {
+                            Text(
+                                text = "Configuration",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Text(
+                                text = selectedConfig?.name ?: "Select config",
+                                style = MaterialTheme.typography.bodyLarge,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                        Icon(
+                            imageVector = Icons.Filled.ArrowDropDown,
+                            contentDescription = "Select",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
-                    Icon(
-                        imageVector = Icons.Filled.ArrowDropDown,
-                        contentDescription = "Select config",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
                 }
             }
+            Spacer(Modifier.height(24.dp))
         }
     }
 
@@ -232,7 +247,7 @@ fun ConnectScreen(
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(top = 12.dp, bottom = 4.dp),
+                        .padding(top = 12.dp, bottom = 8.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     Box(
@@ -243,108 +258,54 @@ fun ConnectScreen(
                             .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f))
                     )
                 }
-                ConfigList(
-                    configs = configs,
-                    selectedSource = selectedConfig?.source,
-                    onSelect = { config ->
-                        val isDifferent = config.source != selectedConfig?.source
-                        if (isDifferent) {
-                            when (vpnState) {
-                                is VpnState.Connecting, is VpnState.Connected -> onDisconnect()
-                                else -> Unit
-                            }
-                        }
-                        viewModel.selectConfig(config)
-                        showConfigSheet = false
-                    },
-                    onEdit = { config ->
-                        editingConfig = config
-                        showConfigSheet = false
+                LazyColumn(
+                    modifier = Modifier.fillMaxWidth(),
+                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    item {
+                        Text(
+                            text = "Configurations",
+                            style = MaterialTheme.typography.titleLarge,
+                            modifier = Modifier.padding(vertical = 8.dp)
+                        )
                     }
-                )
+                    if (configs.isEmpty()) {
+                        item {
+                            Text(
+                                text = "No saved configurations",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(vertical = 8.dp)
+                            )
+                        }
+                    } else {
+                        items(configs, key = { it.source }) { config ->
+                            ConfigPill(
+                                config = config,
+                                selected = config.source == selectedConfig?.source,
+                                onSelect = {
+                                    val isDifferent = config.source != selectedConfig?.source
+                                    if (isDifferent) {
+                                        when (vpnState) {
+                                            is VpnState.Connecting, is VpnState.Connected -> onDisconnect()
+                                            else -> Unit
+                                        }
+                                    }
+                                    viewModel.selectConfig(config)
+                                    showConfigSheet = false
+                                },
+                                onEdit = {
+                                    showConfigSheet = false
+                                    onOpenEdit(config)
+                                }
+                            )
+                        }
+                    }
+                    item { Spacer(modifier = Modifier.height(24.dp)) }
+                }
             }
         }
-    }
-
-    if (showAddDialog) {
-        ConfigEditorDialog(
-            isEdit = false,
-            initialSource = "",
-            onDismiss = { showAddDialog = false },
-            onSave = { src ->
-                viewModel.addConfig(src)
-                showAddDialog = false
-            }
-        )
-    }
-
-    editingConfig?.let { cfg ->
-        ConfigEditorDialog(
-            isEdit = true,
-            initialSource = cfg.source,
-            onDismiss = { editingConfig = null },
-            onSave = { src ->
-                viewModel.updateConfig(cfg, src)
-                editingConfig = null
-            },
-            onDelete = {
-                editingConfig = null
-                deletingConfig = cfg
-            }
-        )
-    }
-
-    deletingConfig?.let { cfg ->
-        ConfirmDeleteDialog(
-            configName = cfg.name,
-            onDismiss = { deletingConfig = null },
-            onConfirm = {
-                viewModel.deleteConfig(cfg)
-                deletingConfig = null
-            }
-        )
-    }
-}
-
-@Composable
-fun ConfigList(
-    configs: List<VpnConfig>,
-    selectedSource: String?,
-    onSelect: (VpnConfig) -> Unit,
-    onEdit: (VpnConfig) -> Unit,
-) {
-    LazyColumn(
-        modifier = Modifier.fillMaxWidth(),
-        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        item {
-            Text(
-                text = "Configurations",
-                style = MaterialTheme.typography.titleLarge,
-                modifier = Modifier.padding(vertical = 8.dp)
-            )
-        }
-        if (configs.isEmpty()) {
-            item {
-                Text(
-                    text = "No saved configurations",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(vertical = 8.dp)
-                )
-            }
-        } else {
-            items(configs, key = { it.source }) { config ->
-                ConfigPill(
-                    config = config,
-                    selected = config.source == selectedSource,
-                    onSelect = { onSelect(config) },
-                    onEdit = { onEdit(config) }
-                )
-            }
-        }
-        item { Spacer(modifier = Modifier.height(16.dp)) }
     }
 }
 
@@ -358,7 +319,7 @@ fun ConfigPill(
     val containerColor = if (selected)
         MaterialTheme.colorScheme.primaryContainer
     else
-        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
+        MaterialTheme.colorScheme.surfaceContainerHighest
     val contentColor = if (selected)
         MaterialTheme.colorScheme.onPrimaryContainer
     else
@@ -403,162 +364,4 @@ fun ConfigPill(
             }
         }
     }
-}
-
-@Composable
-fun SoftDialog(
-    onDismissRequest: () -> Unit,
-    title: String,
-    content: @Composable ColumnScope.() -> Unit,
-    leadingButton: (@Composable RowScope.() -> Unit)? = null,
-    buttons: @Composable RowScope.() -> Unit,
-) {
-    Dialog(onDismissRequest = onDismissRequest) {
-        Surface(
-            shape = RoundedCornerShape(32.dp),
-            color = MaterialTheme.colorScheme.surfaceContainerHigh,
-            tonalElevation = 6.dp,
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Column(modifier = Modifier.padding(24.dp)) {
-                Text(
-                    text = title,
-                    style = MaterialTheme.typography.headlineSmall,
-                    modifier = Modifier.padding(bottom = 20.dp)
-                )
-                content()
-                Spacer(Modifier.height(24.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    if (leadingButton != null) {
-                        leadingButton()
-                    }
-                    Spacer(Modifier.weight(1f))
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        content = buttons
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
-fun SoftTextField(
-    value: String,
-    onValueChange: (String) -> Unit,
-    label: String,
-    modifier: Modifier = Modifier,
-    minLines: Int = 1,
-) {
-    TextField(
-        value = value,
-        onValueChange = onValueChange,
-        modifier = modifier.fillMaxWidth(),
-        label = { Text(label) },
-        shape = RoundedCornerShape(20.dp),
-        minLines = minLines,
-        colors = TextFieldDefaults.colors(
-            focusedContainerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f),
-            unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-            focusedIndicatorColor = Color.Transparent,
-            unfocusedIndicatorColor = Color.Transparent,
-            disabledIndicatorColor = Color.Transparent,
-        )
-    )
-}
-
-@Composable
-fun ConfigEditorDialog(
-    isEdit: Boolean,
-    initialSource: String,
-    onDismiss: () -> Unit,
-    onSave: (String) -> Unit,
-    onDelete: (() -> Unit)? = null,
-) {
-    var source by remember { mutableStateOf(initialSource) }
-    val title = if (isEdit) "Edit" else "New"
-    val canSave = source.isNotBlank() && source.trim() != initialSource.trim()
-
-    SoftDialog(
-        onDismissRequest = onDismiss,
-        title = title,
-        content = {
-            SoftTextField(
-                value = source,
-                onValueChange = { source = it },
-                label = "shampoore:// link or JSON",
-                minLines = 5
-            )
-        },
-        leadingButton = if (onDelete != null) {
-            {
-                TextButton(
-                    onClick = onDelete,
-                    shape = RoundedCornerShape(50),
-                    colors = ButtonDefaults.textButtonColors(
-                        contentColor = MaterialTheme.colorScheme.error
-                    )
-                ) {
-                    Text("Delete")
-                }
-            }
-        } else null,
-        buttons = {
-            TextButton(
-                onClick = onDismiss,
-                shape = RoundedCornerShape(50)
-            ) {
-                Text("Cancel")
-            }
-            FilledTonalButton(
-                onClick = { if (canSave) onSave(source.trim()) },
-                enabled = canSave,
-                shape = RoundedCornerShape(50)
-            ) {
-                Text(if (isEdit) "Save" else "Add")
-            }
-        }
-    )
-}
-
-@Composable
-fun ConfirmDeleteDialog(
-    configName: String,
-    onDismiss: () -> Unit,
-    onConfirm: () -> Unit,
-) {
-    SoftDialog(
-        onDismissRequest = onDismiss,
-        title = "Delete?",
-        content = {
-            Text(
-                text = "\"$configName\" will be deleted. This action cannot be undone.",
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        },
-        buttons = {
-            TextButton(
-                onClick = onDismiss,
-                shape = RoundedCornerShape(50)
-            ) {
-                Text("Cancel")
-            }
-            FilledTonalButton(
-                onClick = onConfirm,
-                shape = RoundedCornerShape(50),
-                colors = ButtonDefaults.filledTonalButtonColors(
-                    containerColor = MaterialTheme.colorScheme.errorContainer,
-                    contentColor = MaterialTheme.colorScheme.onErrorContainer
-                )
-            ) {
-                Text("Delete")
-            }
-        }
-    )
 }

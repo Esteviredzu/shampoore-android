@@ -1,8 +1,118 @@
+import java.io.IOException
+import java.net.HttpURLConnection
+import java.net.URI
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
 }
+
+// =========================================================================
+// shampoore AAR: auto-download from GitHub Releases
+//
+// Pin a version in gradle.properties:
+//   shampoore.version=latest     (default)
+//   shampoore.version=1.0        (tag v1.0)
+//
+// To force re-download of the "latest" tag:
+//   ./gradlew downloadShampooreAar --rerun-tasks
+// or delete app/libs/shampoore.aar*
+// =========================================================================
+
+val shampooreVersion: String =
+    (project.findProperty("shampoore.version") as String?)?.trim().takeUnless { it.isNullOrEmpty() }
+        ?: "latest"
+
+val shampooreAarDir: File = file("libs")
+val shampooreAar: File = File(shampooreAarDir, "shampoore.aar")
+val shampooreAarVersionFile: File = File(shampooreAarDir, "shampoore.aar.version")
+val shampooreAarTmp: File = File(shampooreAarDir, "shampoore.aar.tmp")
+
+val shampooreAarUrl: String =
+    if (shampooreVersion == "latest") {
+        "https://github.com/Esteviredzu/shampoore/releases/latest/download/shampoore.aar"
+    } else {
+        "https://github.com/Esteviredzu/shampoore/releases/download/v$shampooreVersion/shampoore.aar"
+    }
+
+fun httpDownload(url: String, dest: File) {
+    val conn = URI(url).toURL().openConnection() as HttpURLConnection
+    conn.instanceFollowRedirects = true
+    conn.connectTimeout = 30_000
+    conn.readTimeout = 120_000
+    conn.setRequestProperty("User-Agent", "shampoore-gradle")
+    try {
+        val code = conn.responseCode
+        if (code !in 200..299) {
+            throw IOException("HTTP $code from $url")
+        }
+        val total = conn.contentLengthLong
+        if (total > 0) logger.lifecycle("shampoore.aar: ${total / 1024} KiB to download")
+        conn.inputStream.use { input ->
+            dest.outputStream().use { output -> input.copyTo(output) }
+        }
+    } finally {
+        conn.disconnect()
+    }
+}
+
+val downloadShampooreAar: TaskProvider<Task> = tasks.register("downloadShampooreAar") {
+    description = "Downloads shampoore.aar from GitHub Releases"
+    group = "shampoore"
+
+    inputs.property("version", shampooreVersion)
+    outputs.file(shampooreAar)
+
+    doLast {
+        shampooreAarDir.mkdirs()
+
+        val cachedVersion =
+            if (shampooreAarVersionFile.exists())
+                shampooreAarVersionFile.readText().trim()
+            else ""
+
+        if (shampooreAar.exists() &&
+            shampooreVersion != "latest" &&
+            cachedVersion == shampooreVersion
+        ) {
+            logger.lifecycle("shampoore.aar for v$shampooreVersion already cached, skipping")
+            return@doLast
+        }
+
+        try {
+            logger.lifecycle("Downloading shampoore.aar from $shampooreAarUrl")
+            if (shampooreAarTmp.exists()) shampooreAarTmp.delete()
+            httpDownload(shampooreAarUrl, shampooreAarTmp)
+            if (shampooreAar.exists()) shampooreAar.delete()
+            if (!shampooreAarTmp.renameTo(shampooreAar)) {
+                shampooreAarTmp.copyTo(shampooreAar, overwrite = true)
+                shampooreAarTmp.delete()
+            }
+            shampooreAarVersionFile.writeText(shampooreVersion)
+            logger.lifecycle("Downloaded shampoore.aar (${shampooreAar.length() / 1024} KiB)")
+        } catch (e: Exception) {
+            if (shampooreAar.exists()) {
+                logger.warn(
+                    "Download of shampoore.aar failed (${e.message}); " +
+                            "using cached ${shampooreAar.length() / 1024} KiB copy"
+                )
+                return@doLast
+            }
+            throw GradleException(
+                "Failed to download shampoore.aar from $shampooreAarUrl: ${e.message}\n" +
+                        "Options:\n" +
+                        "  - check network access to github.com\n" +
+                        "  - set shampoore.version in gradle.properties (e.g. 1.0)\n" +
+                        "  - or drop shampoore.aar manually into app/libs/",
+                e
+            )
+        }
+    }
+}
+
+tasks.named("preBuild") { dependsOn(downloadShampooreAar) }
+// =========================================================================
 
 android {
     namespace = "dev.shampoore.app"
@@ -40,7 +150,7 @@ android {
 }
 
 dependencies {
-    implementation(files("libs/shampoore.aar"))
+    implementation(files(shampooreAar))
 
     implementation("androidx.core:core-ktx:1.17.0")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.9.4")
@@ -56,6 +166,8 @@ dependencies {
     implementation("androidx.compose.material:material-icons-extended")
 
     implementation("androidx.datastore:datastore-preferences:1.1.2")
+
+    implementation("com.journeyapps:zxing-android-embedded:4.3.0")
 
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)

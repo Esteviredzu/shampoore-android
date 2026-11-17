@@ -5,14 +5,19 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import dev.shampoore.app.data.ConfigStore
 import dev.shampoore.app.data.VpnConfig
+import dev.shampoore.app.stats.StatsData
 import dev.shampoore.app.vpn.VpnBridge
 import dev.shampoore.app.vpn.VpnState
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import mobile.Mobile
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val configStore = ConfigStore(application)
@@ -24,6 +29,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _selectedConfig = MutableStateFlow<VpnConfig?>(null)
     val selectedConfig: StateFlow<VpnConfig?> = _selectedConfig
+
+    private val _stats = MutableStateFlow<StatsData?>(null)
+    val stats: StateFlow<StatsData?> = _stats
 
     init {
         viewModelScope.launch {
@@ -38,6 +46,26 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     _selectedConfig.value = null
                     configStore.setSelectedSource(null)
                 }
+            }
+        }
+        startStatsPolling()
+    }
+
+    private fun startStatsPolling() {
+        viewModelScope.launch(Dispatchers.IO) {
+            while (isActive) {
+                val connected = VpnBridge.state.value is VpnState.Connected
+                if (connected) {
+                    try {
+                        val raw = Mobile.getStats()
+                        _stats.value = StatsData.fromJson(raw)
+                    } catch (_: Throwable) {
+                        _stats.value = null
+                    }
+                } else {
+                    _stats.value = null
+                }
+                delay(1000L)
             }
         }
     }
