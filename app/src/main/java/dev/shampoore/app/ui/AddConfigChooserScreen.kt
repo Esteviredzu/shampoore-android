@@ -11,6 +11,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.QrCodeScanner
@@ -20,6 +21,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
@@ -27,24 +29,40 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import com.journeyapps.barcodescanner.ScanContract
 import com.journeyapps.barcodescanner.ScanOptions
+import dev.shampoore.app.data.AddConfigInput
+import dev.shampoore.app.data.AddConfigInputClassifier
 import kotlinx.coroutines.delay
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AddConfigChooserScreen(
     onBack: () -> Unit,
-    onSourceReady: (String) -> Unit,
+    onImportInput: (String) -> Unit,
     onManual: () -> Unit
 ) {
     val context = LocalContext.current
-    var showLinkSheet by remember { mutableStateOf(false) }
-    var linkText by remember { mutableStateOf("") }
+    val clipboard = LocalClipboardManager.current
+    var showImportSheet by remember { mutableStateOf(false) }
+    var importText by remember { mutableStateOf("") }
     var errorText by remember { mutableStateOf<String?>(null) }
+
+    fun submitImport(raw: String): Boolean =
+        when (val input = AddConfigInputClassifier.classify(raw)) {
+            is AddConfigInput.Invalid -> {
+                errorText = input.message
+                false
+            }
+            else -> {
+                errorText = null
+                onImportInput(raw)
+                true
+            }
+        }
 
     val scanOptions = remember {
         ScanOptions().apply {
             setDesiredBarcodeFormats(ScanOptions.QR_CODE)
-            setPrompt("Point camera at a shampoore QR code")
+            setPrompt("Scan a subscription link, JSON bundle or shampoore code")
             setBeepEnabled(false)
             setOrientationLocked(true)
             setBarcodeImageEnabled(false)
@@ -53,7 +71,10 @@ fun AddConfigChooserScreen(
 
     val scanLauncher = rememberLauncherForActivityResult(ScanContract()) { result ->
         val content = result.contents
-        if (!content.isNullOrBlank()) onSourceReady(content)
+        if (!content.isNullOrBlank()) {
+            showImportSheet = false
+            submitImport(content)
+        }
     }
 
     val cameraPermissionLauncher = rememberLauncherForActivityResult(
@@ -81,7 +102,7 @@ fun AddConfigChooserScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Add Config") },
+                title = { Text("Add") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
@@ -99,21 +120,21 @@ fun AddConfigChooserScreen(
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
             Spacer(Modifier.height(8.dp))
-            Text("How do you want to add it?", style = MaterialTheme.typography.headlineSmall)
+            Text("What are you adding?", style = MaterialTheme.typography.headlineSmall)
             Text(
-                "Import a ready config or fill the fields manually.",
+                "Scan or paste a subscription link, a JSON bundle or a single shampoore config.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
             Spacer(Modifier.height(8.dp))
 
-            if (errorText != null) {
+            errorText?.let { message ->
                 Surface(
                     shape = RoundedCornerShape(14.dp),
                     color = MaterialTheme.colorScheme.errorContainer
                 ) {
                     Text(
-                        text = errorText!!,
+                        text = message,
                         modifier = Modifier.padding(14.dp),
                         color = MaterialTheme.colorScheme.onErrorContainer,
                         style = MaterialTheme.typography.bodyMedium
@@ -124,19 +145,19 @@ fun AddConfigChooserScreen(
             AddOptionCard(
                 icon = Icons.Filled.QrCodeScanner,
                 title = "Scan QR",
-                subtitle = "Point camera at a shampoore QR code",
+                subtitle = "Subscription link, JSON bundle or single shampoore config",
                 accent = true,
                 onClick = { launchScanner() }
             )
             AddOptionCard(
                 icon = Icons.Filled.Link,
-                title = "Paste link",
-                subtitle = "Import from shampoore:// URL or JSON",
-                onClick = { showLinkSheet = true }
+                title = "Paste link or JSON",
+                subtitle = "URL, JSON bundle, shampoore:// link or a JSON config",
+                onClick = { showImportSheet = true }
             )
             AddOptionCard(
                 icon = Icons.Filled.Edit,
-                title = "Manual",
+                title = "Manual config",
                 subtitle = "Fill transport fields step by step",
                 onClick = onManual
             )
@@ -144,11 +165,11 @@ fun AddConfigChooserScreen(
         }
     }
 
-    if (showLinkSheet) {
+    if (showImportSheet) {
         ModalBottomSheet(
             onDismissRequest = {
-                showLinkSheet = false
-                linkText = ""
+                showImportSheet = false
+                importText = ""
             },
             containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
             shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)
@@ -158,33 +179,52 @@ fun AddConfigChooserScreen(
                     .fillMaxWidth()
                     .padding(horizontal = 24.dp)
                     .padding(bottom = 32.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp)
+                verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
-                Text("Paste link", style = MaterialTheme.typography.titleLarge)
+                Text("Paste link or JSON", style = MaterialTheme.typography.titleLarge)
                 Text(
-                    "Paste a shampoore:// URL or JSON config.",
+                    "Paste a subscription URL, a JSON bundle {\"name\":..., \"links\":[...]}, " +
+                        "a shampoore:// link or a JSON config.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 OutlinedTextField(
-                    value = linkText,
-                    onValueChange = { linkText = it },
+                    value = importText,
+                    onValueChange = {
+                        importText = it
+                        errorText = null
+                    },
                     modifier = Modifier
                         .fillMaxWidth()
-                        .heightIn(min = 120.dp),
-                    label = { Text("Link or JSON") },
-                    placeholder = { Text("shampoore://...") },
+                        .heightIn(min = 140.dp),
+                    label = { Text("Link, JSON or bundle") },
+                    placeholder = { Text("https://server/sub/token") },
+                    minLines = 4,
                     shape = RoundedCornerShape(16.dp),
                     textStyle = LocalTextStyle.current.copy(fontFamily = FontFamily.Monospace)
                 )
-                Row(
+                OutlinedButton(
+                    onClick = {
+                        val pasted = clipboard.getText()?.text
+                        if (pasted.isNullOrBlank()) {
+                            errorText = "Clipboard is empty"
+                        } else {
+                            importText = pasted
+                            errorText = null
+                        }
+                    },
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    shape = RoundedCornerShape(16.dp)
                 ) {
+                    Icon(Icons.Filled.ContentPaste, contentDescription = null)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Paste from clipboard")
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     OutlinedButton(
                         onClick = {
-                            showLinkSheet = false
-                            linkText = ""
+                            showImportSheet = false
+                            importText = ""
                         },
                         modifier = Modifier.weight(1f),
                         shape = RoundedCornerShape(16.dp)
@@ -193,22 +233,16 @@ fun AddConfigChooserScreen(
                     }
                     Button(
                         onClick = {
-                            val t = linkText.trim()
-                            when {
-                                t.isEmpty() -> errorText = "Link is empty"
-                                !t.startsWith("shampoore://") && !t.startsWith("{") ->
-                                    errorText = "Must start with shampoore:// or {"
-                                else -> {
-                                    showLinkSheet = false
-                                    linkText = ""
-                                    onSourceReady(t)
-                                }
+                            if (submitImport(importText)) {
+                                showImportSheet = false
+                                importText = ""
                             }
                         },
+                        enabled = importText.isNotBlank(),
                         modifier = Modifier.weight(1f),
                         shape = RoundedCornerShape(16.dp)
                     ) {
-                        Text("Continue")
+                        Text("Import")
                     }
                 }
             }
@@ -274,3 +308,4 @@ private fun AddOptionCard(
         }
     }
 }
+

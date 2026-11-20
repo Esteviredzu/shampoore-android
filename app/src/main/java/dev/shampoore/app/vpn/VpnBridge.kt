@@ -8,6 +8,7 @@ sealed interface VpnState {
     data object Connecting : VpnState
     data object Connected : VpnState
     data object Disconnecting : VpnState
+    data class Error(val message: String) : VpnState
 }
 
 object VpnBridge {

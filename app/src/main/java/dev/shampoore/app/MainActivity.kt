@@ -21,10 +21,13 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import dev.shampoore.app.data.AddConfigInput
+import dev.shampoore.app.data.AddConfigInputClassifier
 import dev.shampoore.app.data.VpnConfig
 import dev.shampoore.app.ui.AddConfigChooserScreen
 import dev.shampoore.app.ui.ConnectScreen
 import dev.shampoore.app.ui.ConfigEditorScreen
+import dev.shampoore.app.ui.RulesScreen
 import dev.shampoore.app.ui.StatsScreen
 import dev.shampoore.app.ui.theme.ShampooreTheme
 import dev.shampoore.app.viewmodel.MainViewModel
@@ -33,7 +36,7 @@ import dev.shampoore.app.vpn.VpnBridge
 import dev.shampoore.app.vpn.VpnState
 
 enum class AppScreen {
-    MAIN, STATS, ADD_CHOOSER, EDITOR_ADD, EDITOR_EDIT
+    MAIN, STATS, RULES, ADD_CHOOSER, EDITOR_ADD, EDITOR_EDIT
 }
 
 class MainActivity : ComponentActivity() {
@@ -65,6 +68,7 @@ class MainActivity : ComponentActivity() {
             BackHandler(enabled = currentScreen != AppScreen.MAIN) {
                 when (currentScreen) {
                     AppScreen.STATS        -> currentScreen = AppScreen.MAIN
+                    AppScreen.RULES        -> currentScreen = AppScreen.MAIN
                     AppScreen.ADD_CHOOSER  -> currentScreen = AppScreen.MAIN
                     AppScreen.EDITOR_ADD   -> {
                         prefilledSource = null
@@ -93,6 +97,7 @@ class MainActivity : ComponentActivity() {
                                 onConnect = ::requestVpnPermissionAndStart,
                                 onDisconnect = ::stopVpn,
                                 onOpenStats = { currentScreen = AppScreen.STATS },
+                                onOpenRules = { currentScreen = AppScreen.RULES },
                                 onOpenAdd = {
                                     prefilledSource = null
                                     currentScreen = AppScreen.ADD_CHOOSER
@@ -108,11 +113,68 @@ class MainActivity : ComponentActivity() {
                                 onBack = { currentScreen = AppScreen.MAIN }
                             )
 
+                            AppScreen.RULES -> {
+                                val rulesList by viewModel.rules.collectAsStateWithLifecycle()
+                                val rulesImporting by viewModel.rulesImporting.collectAsStateWithLifecycle()
+                                val rulesRefreshing by viewModel.rulesRefreshing.collectAsStateWithLifecycle()
+                                val rulesUpdating by viewModel.rulesUpdating.collectAsStateWithLifecycle()
+                                val rulesMessage by viewModel.rulesMessage.collectAsStateWithLifecycle()
+                                val appRules by viewModel.appRules.collectAsStateWithLifecycle()
+                                val appRulesImporting by viewModel.appRulesImporting.collectAsStateWithLifecycle()
+                                val appRulesRefreshing by viewModel.appRulesRefreshing.collectAsStateWithLifecycle()
+                                val appRulesUpdating by viewModel.appRulesUpdating.collectAsStateWithLifecycle()
+                                val installedApps by viewModel.installedApps.collectAsStateWithLifecycle()
+                                val installedAppsLoading by viewModel.installedAppsLoading.collectAsStateWithLifecycle()
+                                RulesScreen(
+                                    rules = rulesList,
+                                    importing = rulesImporting,
+                                    refreshing = rulesRefreshing,
+                                    updatingRule = rulesUpdating,
+                                    message = rulesMessage,
+                                    appRules = appRules,
+                                    appRulesImporting = appRulesImporting,
+                                    appRulesRefreshing = appRulesRefreshing,
+                                    appRulesUpdating = appRulesUpdating,
+                                    installedApps = installedApps,
+                                    installedAppsLoading = installedAppsLoading,
+                                    onBack = { currentScreen = AppScreen.MAIN },
+                                    onToggleRule = { name, enabled -> viewModel.setRuleEnabled(name, enabled) },
+                                    onDeleteRule = { name -> viewModel.deleteRule(name) },
+                                    onImportFile = { uri, name -> viewModel.importRuleFile(uri, name) },
+                                    onImportUrl = { url, name -> viewModel.importRuleFromUrl(url, name) },
+                                    onRefreshRule = { name -> viewModel.refreshRule(name) },
+                                    onRefresh = { viewModel.refreshRules() },
+                                    onToggleAppRule = { name, enabled -> viewModel.setAppRuleEnabled(name, enabled) },
+                                    onDeleteAppRule = { name -> viewModel.deleteAppRule(name) },
+                                    onImportAppFile = { uri -> viewModel.importAppRuleFile(uri) },
+                                    onImportAppUrl = { url, name -> viewModel.importAppRuleFromUrl(url, name) },
+                                    onRefreshAppRule = { name -> viewModel.refreshAppRules(name) },
+                                    onRefreshAppRules = { viewModel.refreshAppRules() },
+                                    onSaveSelectedApps = { packages -> viewModel.saveCustomSelectedApps(packages) },
+                                    onSetSelectedAppsEnabled = { enabled -> viewModel.setCustomSelectedAppsEnabled(enabled) },
+                                    onLoadInstalledApps = { viewModel.loadInstalledApps() },
+                                    onMessageShown = { viewModel.clearRulesMessage() }
+                                )
+                            }
+
                             AppScreen.ADD_CHOOSER -> AddConfigChooserScreen(
                                 onBack = { currentScreen = AppScreen.MAIN },
-                                onSourceReady = { src ->
-                                    prefilledSource = src
-                                    currentScreen = AppScreen.EDITOR_ADD
+                                onImportInput = { raw ->
+                                    when (val input = AddConfigInputClassifier.classify(raw)) {
+                                        is AddConfigInput.SubscriptionUrl -> {
+                                            viewModel.addSubscription(input.url)
+                                            currentScreen = AppScreen.MAIN
+                                        }
+                                        is AddConfigInput.OfflineBundle -> {
+                                            viewModel.importOfflineBundle(input.raw)
+                                            currentScreen = AppScreen.MAIN
+                                        }
+                                        is AddConfigInput.SingleConfig -> {
+                                            viewModel.addConfig(input.source)
+                                            currentScreen = AppScreen.MAIN
+                                        }
+                                        is AddConfigInput.Invalid -> Unit
+                                    }
                                 },
                                 onManual = {
                                     prefilledSource = null

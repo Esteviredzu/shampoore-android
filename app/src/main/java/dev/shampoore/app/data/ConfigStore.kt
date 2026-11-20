@@ -4,9 +4,11 @@ import android.content.Context
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 import java.net.URI
@@ -14,9 +16,16 @@ import java.net.URLDecoder
 
 data class VpnConfig(
     val name: String,
-    val source: String
+    val source: String,
+    val subscriptionId: String? = null,
+    val subscriptionName: String? = null,
+    val subtitleOverride: String? = null
 ) {
-    val subtitle: String by lazy { describeSource(source) }
+    val subtitle: String
+        get() = subtitleOverride ?: describeSource(source)
+
+    val isFromSubscription: Boolean
+        get() = subscriptionId != null
 }
 
 private val Context.dataStore by preferencesDataStore(name = "shampoore_configs")
@@ -30,18 +39,18 @@ class ConfigStore(private val context: Context) {
             prefs[CONFIGS_KEY]?.let { parseConfigs(it) } ?: emptyList()
         }
 
-    suspend fun getSelectedSource(): String? {
-        return context.dataStore.data.first()[SELECTED_KEY]
+    suspend fun getSelectedSource(): String? = withContext(Dispatchers.IO) {
+        context.dataStore.data.first()[SELECTED_KEY]
     }
 
-    suspend fun setSelectedSource(source: String?) {
+    suspend fun setSelectedSource(source: String?) = withContext(Dispatchers.IO) {
         context.dataStore.edit { prefs ->
             if (source == null) prefs.remove(SELECTED_KEY)
             else prefs[SELECTED_KEY] = source
         }
     }
 
-    suspend fun addConfigFromSource(source: String): VpnConfig {
+    suspend fun addConfigFromSource(source: String): VpnConfig = withContext(Dispatchers.IO) {
         val name = extractName(source) ?: fallbackName(source)
         val cfg = VpnConfig(name, source)
         context.dataStore.edit { prefs ->
@@ -50,10 +59,10 @@ class ConfigStore(private val context: Context) {
             prefs[CONFIGS_KEY] = serializeConfigs(updated)
             prefs[SELECTED_KEY] = cfg.source
         }
-        return cfg
+        cfg
     }
 
-    suspend fun deleteConfig(source: String) {
+    suspend fun deleteConfig(source: String) = withContext(Dispatchers.IO) {
         context.dataStore.edit { prefs ->
             val current = prefs[CONFIGS_KEY]?.let { parseConfigs(it) } ?: emptyList()
             val updated = current.filter { it.source != source }
@@ -64,19 +73,20 @@ class ConfigStore(private val context: Context) {
         }
     }
 
-    suspend fun updateConfig(oldSource: String, newSource: String): VpnConfig {
-        val name = extractName(newSource) ?: fallbackName(newSource)
-        val cfg = VpnConfig(name, newSource)
-        context.dataStore.edit { prefs ->
-            val current = prefs[CONFIGS_KEY]?.let { parseConfigs(it) } ?: emptyList()
-            val updated = current.map { if (it.source == oldSource) cfg else it }
-            prefs[CONFIGS_KEY] = serializeConfigs(updated)
-            if (prefs[SELECTED_KEY] == oldSource) {
-                prefs[SELECTED_KEY] = newSource
+    suspend fun updateConfig(oldSource: String, newSource: String): VpnConfig =
+        withContext(Dispatchers.IO) {
+            val name = extractName(newSource) ?: fallbackName(newSource)
+            val cfg = VpnConfig(name, newSource)
+            context.dataStore.edit { prefs ->
+                val current = prefs[CONFIGS_KEY]?.let { parseConfigs(it) } ?: emptyList()
+                val updated = current.map { if (it.source == oldSource) cfg else it }
+                prefs[CONFIGS_KEY] = serializeConfigs(updated)
+                if (prefs[SELECTED_KEY] == oldSource) {
+                    prefs[SELECTED_KEY] = newSource
+                }
             }
+            cfg
         }
-        return cfg
-    }
 
     private fun serializeConfigs(configs: List<VpnConfig>): String {
         val arr = JSONArray()

@@ -22,7 +22,9 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import dev.shampoore.app.data.SubscriptionRecord
 import dev.shampoore.app.data.VpnConfig
+import dev.shampoore.app.data.toVpnConfigs
 import dev.shampoore.app.viewmodel.MainViewModel
 import dev.shampoore.app.vpn.VpnState
 
@@ -33,6 +35,7 @@ fun ConnectScreen(
     onConnect: (String) -> Unit,
     onDisconnect: () -> Unit,
     onOpenStats: () -> Unit,
+    onOpenRules: () -> Unit,
     onOpenAdd: () -> Unit,
     onOpenEdit: (VpnConfig) -> Unit
 ) {
@@ -41,15 +44,59 @@ fun ConnectScreen(
     val selectedConfig by viewModel.selectedConfig.collectAsStateWithLifecycle()
 
     var showConfigSheet by remember { mutableStateOf(false) }
+    var expandedGroups by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var pendingDelete by remember { mutableStateOf<SubscriptionRecord?>(null) }
+
+    val subscriptions by viewModel.subscriptions.collectAsStateWithLifecycle()
+    val subscriptionRefreshing by viewModel.subscriptionRefreshing.collectAsStateWithLifecycle()
+    val subscriptionMessage by viewModel.subscriptionMessage.collectAsStateWithLifecycle()
+    val subscriptionGroups = subscriptions.map { record -> record to record.toVpnConfigs() }
+
+    val snackbarHostState = remember { SnackbarHostState() }
+
+    LaunchedEffect(subscriptionMessage) {
+        subscriptionMessage?.let { message ->
+            snackbarHostState.showSnackbar(message)
+            viewModel.clearSubscriptionMessage()
+        }
+    }
+
+    LaunchedEffect(showConfigSheet) {
+        if (showConfigSheet) viewModel.refreshStaleSubscriptions()
+    }
+
+    LaunchedEffect(showConfigSheet, selectedConfig, subscriptions) {
+        if (showConfigSheet) {
+            val selectedId = selectedConfig?.subscriptionId
+            if (selectedId != null && subscriptions.any { it.subscription.id == selectedId }) {
+                expandedGroups = expandedGroups + selectedId
+            }
+        }
+    }
+
+    fun selectProfile(config: VpnConfig) {
+        val different = config.source != selectedConfig?.source ||
+            config.subscriptionId != selectedConfig?.subscriptionId
+        if (different) {
+            when (vpnState) {
+                is VpnState.Connecting, is VpnState.Connected -> onDisconnect()
+                else -> Unit
+            }
+        }
+        viewModel.selectConfig(config)
+        showConfigSheet = false
+    }
 
     val isConnected = vpnState is VpnState.Connected
     val isConnecting = vpnState is VpnState.Connecting
     val isDisconnecting = vpnState is VpnState.Disconnecting
+    val errorMessage = (vpnState as? VpnState.Error)?.message
 
     val buttonEnabled = when (vpnState) {
         is VpnState.Connected -> true
         is VpnState.Connecting -> true
         is VpnState.Disconnecting -> false
+        is VpnState.Error -> selectedConfig != null
         is VpnState.Disconnected -> selectedConfig != null
     }
 
@@ -69,6 +116,9 @@ fun ConnectScreen(
             TopAppBar(
                 title = { Text("Shampoore", style = MaterialTheme.typography.titleLarge) },
                 actions = {
+                    IconButton(onClick = onOpenRules) {
+                        Icon(Icons.Filled.List, contentDescription = "Rules")
+                    }
                     IconButton(onClick = onOpenStats) {
                         Icon(Icons.Filled.BarChart, contentDescription = "Statistics")
                     }
@@ -77,7 +127,8 @@ fun ConnectScreen(
                     containerColor = MaterialTheme.colorScheme.background
                 )
             )
-        }
+        },
+        snackbarHost = { SnackbarHost(snackbarHostState) }
     ) { padding ->
         Column(
             modifier = Modifier
@@ -88,7 +139,7 @@ fun ConnectScreen(
         ) {
             Spacer(modifier = Modifier.weight(1f))
 
-            // Main Connect Button
+            
             val gradientColors = when {
                 isConnected -> listOf(
                     MaterialTheme.colorScheme.primary,
@@ -124,7 +175,8 @@ fun ConnectScreen(
                         when (vpnState) {
                             is VpnState.Connected -> onDisconnect()
                             is VpnState.Connecting -> onDisconnect()
-                            is VpnState.Disconnected -> selectedConfig?.let { onConnect(it.source) }
+                            is VpnState.Disconnected, is VpnState.Error ->
+                                selectedConfig?.let { onConnect(it.source) }
                             else -> Unit
                         }
                     }
@@ -151,6 +203,7 @@ fun ConnectScreen(
                 is VpnState.Connected -> "Connected"
                 is VpnState.Connecting -> "Connecting..."
                 is VpnState.Disconnecting -> "Disconnecting..."
+                is VpnState.Error -> "Connection error"
                 is VpnState.Disconnected -> "Not connected"
             }
 
@@ -160,6 +213,16 @@ fun ConnectScreen(
                 textAlign = TextAlign.Center,
                 fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold
             )
+
+            if (errorMessage != null) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = errorMessage,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.error,
+                    textAlign = TextAlign.Center
+                )
+            }
 
             if (selectedConfig == null && !isConnected && !isConnecting) {
                 Spacer(modifier = Modifier.height(8.dp))
@@ -173,11 +236,11 @@ fun ConnectScreen(
 
             Spacer(modifier = Modifier.weight(1f))
 
-            // Bottom Row: Add Button + Config Selector
+            
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(64.dp), // Fixed height for uniformity
+                    .height(64.dp), 
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Surface(
@@ -213,9 +276,11 @@ fun ConnectScreen(
                     ) {
                         Column {
                             Text(
-                                text = "Configuration",
+                                text = selectedConfig?.subscriptionName ?: "Configuration",
                                 style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
                             )
                             Text(
                                 text = selectedConfig?.name ?: "Select config",
@@ -270,10 +335,39 @@ fun ConnectScreen(
                             modifier = Modifier.padding(vertical = 8.dp)
                         )
                     }
+
+                    if (subscriptionGroups.isNotEmpty()) {
+                        item { SectionTitle("Subscriptions") }
+                        subscriptionGroups.forEach { (record, routes) ->
+                            val groupId = record.subscription.id
+                            item(key = "sub_$groupId") {
+                                SubscriptionGroupCard(
+                                    subscription = record.subscription,
+                                    routes = routes,
+                                    refreshing = groupId in subscriptionRefreshing,
+                                    expanded = groupId in expandedGroups,
+                                    selectedSource = selectedConfig?.source,
+                                    selectedSubscriptionId = selectedConfig?.subscriptionId,
+                                    onToggle = {
+                                        expandedGroups = if (groupId in expandedGroups) {
+                                            expandedGroups - groupId
+                                        } else {
+                                            expandedGroups + groupId
+                                        }
+                                    },
+                                    onRouteSelect = { route -> selectProfile(route) },
+                                    onRefresh = { viewModel.refreshSubscription(groupId) },
+                                    onDelete = { pendingDelete = record }
+                                )
+                            }
+                        }
+                    }
+
+                    item { SectionTitle("Local configurations") }
                     if (configs.isEmpty()) {
                         item {
                             Text(
-                                text = "No saved configurations",
+                                text = "No local configurations",
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier.padding(vertical = 8.dp)
@@ -283,18 +377,9 @@ fun ConnectScreen(
                         items(configs, key = { it.source }) { config ->
                             ConfigPill(
                                 config = config,
-                                selected = config.source == selectedConfig?.source,
-                                onSelect = {
-                                    val isDifferent = config.source != selectedConfig?.source
-                                    if (isDifferent) {
-                                        when (vpnState) {
-                                            is VpnState.Connecting, is VpnState.Connected -> onDisconnect()
-                                            else -> Unit
-                                        }
-                                    }
-                                    viewModel.selectConfig(config)
-                                    showConfigSheet = false
-                                },
+                                selected = config.source == selectedConfig?.source &&
+                                    selectedConfig?.subscriptionId == null,
+                                onSelect = { selectProfile(config) },
                                 onEdit = {
                                     showConfigSheet = false
                                     onOpenEdit(config)
@@ -307,6 +392,52 @@ fun ConnectScreen(
             }
         }
     }
+
+    pendingDelete?.let { record ->
+        AlertDialog(
+            onDismissRequest = { pendingDelete = null },
+            title = {
+                Text(
+                    if (record.subscription.isOfflineBundle) {
+                        "Delete offline group?"
+                    } else {
+                        "Delete subscription?"
+                    }
+                )
+            },
+            text = {
+                Text(
+                    "\"${record.subscription.name}\" and its ${record.routes.size} route(s) " +
+                        "will be removed. Local configurations are not affected."
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        viewModel.deleteSubscription(record.subscription.id)
+                        pendingDelete = null
+                    }
+                ) {
+                    Text("Delete", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingDelete = null }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+}
+
+@Composable
+private fun SectionTitle(text: String) {
+    Text(
+        text = text,
+        style = MaterialTheme.typography.titleSmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(top = 8.dp)
+    )
 }
 
 @Composable
