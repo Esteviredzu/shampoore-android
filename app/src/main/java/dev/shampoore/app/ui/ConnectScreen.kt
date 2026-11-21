@@ -11,6 +11,10 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.Edit
+import androidx.compose.material.icons.rounded.QueryStats
+import androidx.compose.material.icons.rounded.Shield
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -116,11 +120,24 @@ fun ConnectScreen(
             TopAppBar(
                 title = { Text("Shampoore", style = MaterialTheme.typography.titleLarge) },
                 actions = {
-                    IconButton(onClick = onOpenRules) {
-                        Icon(Icons.Filled.List, contentDescription = "Rules")
+                    FilledTonalIconButton(
+                        onClick = onOpenRules,
+                        colors = IconButtonDefaults.filledTonalIconButtonColors(
+                            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                            contentColor = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    ) {
+                        Icon(Icons.Rounded.Shield, contentDescription = "Rules")
                     }
-                    IconButton(onClick = onOpenStats) {
-                        Icon(Icons.Filled.BarChart, contentDescription = "Statistics")
+                    Spacer(Modifier.width(8.dp))
+                    FilledTonalIconButton(
+                        onClick = onOpenStats,
+                        colors = IconButtonDefaults.filledTonalIconButtonColors(
+                            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                            contentColor = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    ) {
+                        Icon(Icons.Rounded.QueryStats, contentDescription = "Statistics")
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -305,37 +322,14 @@ fun ConnectScreen(
         ModalBottomSheet(
             onDismissRequest = { showConfigSheet = false },
             containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
-            dragHandle = null,
             shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)
         ) {
             Column {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 12.dp, bottom = 8.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .width(32.dp)
-                            .height(4.dp)
-                            .clip(RoundedCornerShape(2.dp))
-                            .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f))
-                    )
-                }
                 LazyColumn(
                     modifier = Modifier.fillMaxWidth(),
-                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 8.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    item {
-                        Text(
-                            text = "Configurations",
-                            style = MaterialTheme.typography.titleLarge,
-                            modifier = Modifier.padding(vertical = 8.dp)
-                        )
-                    }
-
                     if (subscriptionGroups.isNotEmpty()) {
                         item { SectionTitle("Subscriptions") }
                         subscriptionGroups.forEach { (record, routes) ->
@@ -436,7 +430,7 @@ private fun SectionTitle(text: String) {
         text = text,
         style = MaterialTheme.typography.titleSmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
-        modifier = Modifier.padding(top = 8.dp)
+        modifier = Modifier.padding(top = 16.dp, bottom = 4.dp, start = 4.dp)
     )
 }
 
@@ -462,7 +456,7 @@ fun ConfigPill(
         shape = RoundedCornerShape(50),
         color = containerColor,
         contentColor = contentColor,
-        tonalElevation = if (selected) 4.dp else 1.dp
+        tonalElevation = if (selected) 4.dp else 0.dp
     ) {
         Row(
             modifier = Modifier.padding(start = 20.dp, end = 4.dp, top = 10.dp, bottom = 10.dp),
@@ -470,7 +464,7 @@ fun ConfigPill(
         ) {
             if (selected) {
                 Icon(
-                    imageVector = Icons.Filled.Check,
+                    imageVector = Icons.Rounded.Check,
                     contentDescription = null,
                     modifier = Modifier.padding(end = 12.dp)
                 )
@@ -491,7 +485,7 @@ fun ConfigPill(
                 )
             }
             IconButton(onClick = onEdit) {
-                Icon(Icons.Filled.Edit, contentDescription = "Edit")
+                Icon(Icons.Rounded.Edit, contentDescription = "Edit")
             }
         }
     }

@@ -17,5 +17,6 @@ local.properties
 /app/libs/shampoore.aar
 /app/libs/shampoore.aar.version
 /app/libs/shampoore.aar.tmp
+/app/release
 
 

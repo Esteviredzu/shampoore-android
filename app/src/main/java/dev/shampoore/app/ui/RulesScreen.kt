@@ -3,6 +3,8 @@ package dev.shampoore.app.ui
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -13,16 +15,18 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Link
-import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.rounded.Apps
+import androidx.compose.material.icons.rounded.ChevronRight
+import androidx.compose.material.icons.rounded.DeleteOutline
+import androidx.compose.material.icons.rounded.MoreVert
+import androidx.compose.material.icons.rounded.Public
+import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.material.icons.rounded.Shield
 import androidx.compose.foundation.clickable
-import androidx.compose.material.icons.outlined.Apps
 import androidx.compose.material.icons.outlined.Description
-import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.Info
-import androidx.compose.material.icons.outlined.Public
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -205,28 +209,10 @@ fun RulesScreen(
                 .fillMaxSize()
                 .padding(padding)
         ) {
-            SingleChoiceSegmentedButtonRow(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 8.dp)
-            ) {
-                SegmentedButton(
-                    selected = !appsTab,
-                    onClick = { selectedTab = 0 },
-                    shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2),
-                    icon = { SegmentedButtonDefaults.Icon(active = !appsTab) }
-                ) {
-                    Text("GeoIP")
-                }
-                SegmentedButton(
-                    selected = appsTab,
-                    onClick = { selectedTab = 1 },
-                    shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2),
-                    icon = { SegmentedButtonDefaults.Icon(active = appsTab) }
-                ) {
-                    Text("Bypass")
-                }
-            }
+            GeoipBypassToggle(
+                selectedTab = selectedTab,
+                onSelect = { selectedTab = it }
+            )
 
             if (appsTab) {
                 AppsTabContent(
@@ -412,6 +398,99 @@ fun RulesScreen(
 }
 
 @Composable
+private fun GeoipBypassToggle(
+    selectedTab: Int,
+    onSelect: (Int) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        modifier = modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+        shape = RoundedCornerShape(50),
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        tonalElevation = 0.dp
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(4.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            TogglePillItem(
+                selected = selectedTab == 0,
+                icon = Icons.Rounded.Public,
+                label = "GeoIP",
+                modifier = Modifier.weight(1f),
+                onClick = { onSelect(0) }
+            )
+            TogglePillItem(
+                selected = selectedTab == 1,
+                icon = Icons.Rounded.Shield,
+                label = "Bypass",
+                modifier = Modifier.weight(1f),
+                onClick = { onSelect(1) }
+            )
+        }
+    }
+}
+
+@Composable
+private fun TogglePillItem(
+    selected: Boolean,
+    icon: ImageVector,
+    label: String,
+    modifier: Modifier,
+    onClick: () -> Unit
+) {
+    val containerColor by animateColorAsState(
+        targetValue = if (selected) {
+            MaterialTheme.colorScheme.primary
+        } else {
+            Color.Transparent
+        },
+        animationSpec = tween(220),
+        label = "pillContainer"
+    )
+    val contentColor by animateColorAsState(
+        targetValue = if (selected) {
+            MaterialTheme.colorScheme.onPrimary
+        } else {
+            MaterialTheme.colorScheme.onSurfaceVariant
+        },
+        animationSpec = tween(220),
+        label = "pillContent"
+    )
+
+    Surface(
+        onClick = onClick,
+        modifier = modifier.height(44.dp),
+        shape = RoundedCornerShape(50),
+        color = containerColor,
+        contentColor = contentColor
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 12.dp),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                modifier = Modifier.size(18.dp)
+            )
+            Spacer(Modifier.width(8.dp))
+            Text(
+                text = label,
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1
+            )
+        }
+    }
+}
+
+@Composable
 private fun ImportOption(
     icon: ImageVector,
     title: String,
@@ -587,17 +666,26 @@ private fun RuleItemCard(
             Box {
                 IconButton(onClick = { menuOpen = true }) {
                     Icon(
-                        Icons.Filled.MoreVert,
+                        Icons.Rounded.MoreVert,
                         contentDescription = "More options"
                     )
                 }
                 DropdownMenu(
                     expanded = menuOpen,
-                    onDismissRequest = { menuOpen = false }
+                    onDismissRequest = { menuOpen = false },
+                    shape = RoundedCornerShape(20.dp),
+                    containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    tonalElevation = 3.dp
                 ) {
                     actions.forEach { action ->
+                        val destructive = action.label.equals("Delete", ignoreCase = true)
+                        val itemColor = if (destructive) {
+                            MaterialTheme.colorScheme.error
+                        } else {
+                            MaterialTheme.colorScheme.onSurface
+                        }
                         DropdownMenuItem(
-                            text = { Text(action.label) },
+                            text = { Text(action.label, color = itemColor) },
                             onClick = {
                                 menuOpen = false
                                 action.onClick()
@@ -607,7 +695,8 @@ private fun RuleItemCard(
                                 Icon(
                                     imageVector = action.icon,
                                     contentDescription = null,
-                                    modifier = Modifier.size(20.dp)
+                                    modifier = Modifier.size(20.dp),
+                                    tint = itemColor
                                 )
                             }
                         )
@@ -807,13 +896,13 @@ private fun RuleCard(
             add(
                 RuleCardAction(
                     label = "Refresh",
-                    icon = Icons.Filled.Refresh,
+                    icon = Icons.Rounded.Refresh,
                     enabled = !updating,
                     onClick = onRefresh
                 )
             )
         }
-        add(RuleCardAction(label = "Delete", icon = Icons.Filled.Delete, onClick = onDelete))
+        add(RuleCardAction(label = "Delete", icon = Icons.Rounded.DeleteOutline, onClick = onDelete))
     }
 
     RuleItemCard(
@@ -958,30 +1047,63 @@ private fun SelectedAppsCard(
     val meta = buildString {
         append(count)
         append(if (count == 1) " app" else " apps")
-        if (size > 0) {
-            append(" \u00B7 ")
-            append(formatSize(size))
-        }
+        append(" \u00B7 ")
+        append(formatSize(size))
     }
 
-    RuleItemCard(
-        icon = Icons.Outlined.Apps,
-        title = rule?.name ?: CUSTOM_APP_RULE_NAME,
-        meta = meta,
-        badge = "Manual",
-        badgeIcon = Icons.Outlined.Apps,
-        enabled = enabled,
-        tint = MaterialTheme.colorScheme.primary,
+    Surface(
         onClick = onPickApps,
-        onToggle = onToggle,
-        actions = listOf(
-            RuleCardAction(
-                label = "Choose apps",
-                icon = Icons.Outlined.Edit,
-                onClick = onPickApps
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(24.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        tonalElevation = 0.dp
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Surface(
+                shape = CircleShape,
+                color = MaterialTheme.colorScheme.primaryContainer,
+                contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+            ) {
+                Box(
+                    modifier = Modifier.size(44.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.Apps,
+                        contentDescription = null,
+                        modifier = Modifier.size(22.dp)
+                    )
+                }
+            }
+            Spacer(Modifier.width(14.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = rule?.name ?: CUSTOM_APP_RULE_NAME,
+                    style = MaterialTheme.typography.titleMedium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    text = "$meta \u00B7 tap to manage",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            Spacer(Modifier.width(4.dp))
+            Switch(checked = enabled, onCheckedChange = onToggle)
+            Icon(
+                imageVector = Icons.Rounded.ChevronRight,
+                contentDescription = "Manage apps",
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(20.dp)
             )
-        )
-    )
+        }
+    }
 }
 
 @Composable
@@ -1012,13 +1134,13 @@ private fun AppRuleCard(
             add(
                 RuleCardAction(
                     label = "Refresh",
-                    icon = Icons.Filled.Refresh,
+                    icon = Icons.Rounded.Refresh,
                     enabled = !updating,
                     onClick = onRefresh
                 )
             )
         }
-        add(RuleCardAction(label = "Delete", icon = Icons.Filled.Delete, onClick = onDelete))
+        add(RuleCardAction(label = "Delete", icon = Icons.Rounded.DeleteOutline, onClick = onDelete))
     }
 
     RuleItemCard(
@@ -1048,7 +1170,7 @@ private fun AppsEmptyState() {
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Icon(
-                imageVector = Icons.Outlined.Public,
+                imageVector = Icons.Rounded.Public,
                 contentDescription = null,
                 modifier = Modifier.size(32.dp),
                 tint = MaterialTheme.colorScheme.primary
