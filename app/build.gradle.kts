@@ -15,14 +15,20 @@ plugins {
 //   shampoore.version=latest     (default)
 //   shampoore.version=1.0        (tag v1.0)
 //
-// To force re-download of the "latest" tag:
-//   ./gradlew downloadShampooreAar --rerun-tasks
-// or delete app/libs/shampoore.aar*
+// Local AAR rules:
+//   - If app/libs/shampoore.aar exists, it is used as-is.
+//   - If it does not exist, it is downloaded from GitHub Releases.
+//   - To force a fresh download even when a local copy exists:
+//       ./gradlew downloadShampooreAar --rerun-tasks
+//     or add -Pshampoore.forceDownload=true
 // =========================================================================
 
 val shampooreVersion: String =
     (project.findProperty("shampoore.version") as String?)?.trim().takeUnless { it.isNullOrEmpty() }
         ?: "latest"
+
+val forceShampooreDownload: Boolean =
+    (project.findProperty("shampoore.forceDownload") as String?)?.toBoolean() ?: false
 
 val shampooreAarDir: File = file("libs")
 val shampooreAar: File = File(shampooreAarDir, "shampoore.aar")
@@ -62,6 +68,7 @@ val downloadShampooreAar: TaskProvider<Task> = tasks.register("downloadShampoore
     group = "shampoore"
 
     inputs.property("version", shampooreVersion)
+    inputs.property("forceDownload", forceShampooreDownload)
     outputs.file(shampooreAar)
 
     doLast {
@@ -72,14 +79,22 @@ val downloadShampooreAar: TaskProvider<Task> = tasks.register("downloadShampoore
                 shampooreAarVersionFile.readText().trim()
             else ""
 
-        if (shampooreAar.exists() &&
-            shampooreVersion != "latest" &&
-            cachedVersion == shampooreVersion
-        ) {
-            logger.lifecycle("shampoore.aar for v$shampooreVersion already cached, skipping")
-            return@doLast
+        val force = forceShampooreDownload || gradle.startParameter.isRerunTasks
+        if (shampooreAar.exists() && !force) {
+            if (shampooreVersion == "latest") {
+                logger.lifecycle(
+                    "Using cached shampoore.aar (${shampooreAar.length() / 1024} KiB). " +
+                            "Run ./gradlew downloadShampooreAar --rerun-tasks to refresh."
+                )
+                return@doLast
+            }
+            if (cachedVersion == shampooreVersion) {
+                logger.lifecycle("shampoore.aar for v$shampooreVersion already cached, skipping")
+                return@doLast
+            }
         }
 
+        val hadLocalCopy = shampooreAar.exists()
         try {
             logger.lifecycle("Downloading shampoore.aar from $shampooreAarUrl")
             if (shampooreAarTmp.exists()) shampooreAarTmp.delete()
@@ -92,7 +107,7 @@ val downloadShampooreAar: TaskProvider<Task> = tasks.register("downloadShampoore
             shampooreAarVersionFile.writeText(shampooreVersion)
             logger.lifecycle("Downloaded shampoore.aar (${shampooreAar.length() / 1024} KiB)")
         } catch (e: Exception) {
-            if (shampooreAar.exists()) {
+            if (hadLocalCopy && shampooreAar.exists()) {
                 logger.warn(
                     "Download of shampoore.aar failed (${e.message}); " +
                             "using cached ${shampooreAar.length() / 1024} KiB copy"
@@ -146,6 +161,8 @@ android {
     }
     buildFeatures {
         compose = true
+        // SettingsScreen reads BuildConfig.VERSION_NAME / VERSION_CODE
+        buildConfig = true
     }
 }
 

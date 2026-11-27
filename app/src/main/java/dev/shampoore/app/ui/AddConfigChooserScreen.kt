@@ -7,19 +7,21 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.QrCodeScanner
+import androidx.compose.material.icons.rounded.ContentPaste
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
@@ -165,20 +167,24 @@ fun AddConfigChooserScreen(
         }
     }
 
+    val importSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+
     if (showImportSheet) {
         ModalBottomSheet(
             onDismissRequest = {
                 showImportSheet = false
                 importText = ""
             },
-            containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+            sheetState = importSheetState,
+            containerColor = MaterialTheme.colorScheme.surfaceContainer,
             shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)
         ) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 24.dp)
-                    .padding(bottom = 32.dp),
+                    .weight(1f, fill = false)
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 24.dp),
                 verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
                 Text("Paste link or JSON", style = MaterialTheme.typography.titleLarge)
@@ -188,22 +194,35 @@ fun AddConfigChooserScreen(
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-                OutlinedTextField(
+                TextField(
                     value = importText,
                     onValueChange = {
                         importText = it
                         errorText = null
                     },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(min = 140.dp),
-                    label = { Text("Link, JSON or bundle") },
+                    modifier = Modifier.fillMaxWidth(),
                     placeholder = { Text("https://server/sub/token") },
                     minLines = 4,
-                    shape = RoundedCornerShape(16.dp),
-                    textStyle = LocalTextStyle.current.copy(fontFamily = FontFamily.Monospace)
+                    maxLines = 8,
+                    shape = RoundedCornerShape(24.dp),
+                    textStyle = LocalTextStyle.current.copy(fontFamily = FontFamily.Monospace),
+                    colors = TextFieldDefaults.colors(
+                        focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+                        unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+                        disabledContainerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+                        focusedIndicatorColor = Color.Transparent,
+                        unfocusedIndicatorColor = Color.Transparent,
+                        disabledIndicatorColor = Color.Transparent
+                    )
                 )
-                OutlinedButton(
+                errorText?.let { message ->
+                    Text(
+                        text = message,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
+                FilledTonalButton(
                     onClick = {
                         val pasted = clipboard.getText()?.text
                         if (pasted.isNullOrBlank()) {
@@ -213,37 +232,56 @@ fun AddConfigChooserScreen(
                             errorText = null
                         }
                     },
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(16.dp)
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(52.dp),
+                    shape = CircleShape
                 ) {
-                    Icon(Icons.Filled.ContentPaste, contentDescription = null)
+                    Icon(
+                        imageVector = Icons.Rounded.ContentPaste,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                    )
                     Spacer(Modifier.width(8.dp))
                     Text("Paste from clipboard")
                 }
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    OutlinedButton(
-                        onClick = {
+                Spacer(Modifier.height(4.dp))
+            }
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 24.dp)
+                    .padding(top = 12.dp, bottom = 16.dp)
+                    .navigationBarsPadding()
+                    .imePadding(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                FilledTonalButton(
+                    onClick = {
+                        showImportSheet = false
+                        importText = ""
+                    },
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(52.dp),
+                    shape = CircleShape
+                ) {
+                    Text("Cancel")
+                }
+                Button(
+                    onClick = {
+                        if (submitImport(importText)) {
                             showImportSheet = false
                             importText = ""
-                        },
-                        modifier = Modifier.weight(1f),
-                        shape = RoundedCornerShape(16.dp)
-                    ) {
-                        Text("Cancel")
-                    }
-                    Button(
-                        onClick = {
-                            if (submitImport(importText)) {
-                                showImportSheet = false
-                                importText = ""
-                            }
-                        },
-                        enabled = importText.isNotBlank(),
-                        modifier = Modifier.weight(1f),
-                        shape = RoundedCornerShape(16.dp)
-                    ) {
-                        Text("Import")
-                    }
+                        }
+                    },
+                    enabled = importText.isNotBlank(),
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(52.dp),
+                    shape = CircleShape
+                ) {
+                    Text("Import")
                 }
             }
         }

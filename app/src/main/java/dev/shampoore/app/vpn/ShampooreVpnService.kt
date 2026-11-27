@@ -139,12 +139,25 @@ class ShampooreVpnService : VpnService() {
 
     private fun handleCoreState(state: String, message: String) {
         if (serviceDestroyed) return
+        
+        
+        
+        val current = runCatching { Mobile.getState() }.getOrNull()
+        if (current != null && current != state) {
+            Log.d(TAG, "ignoring stale core state=$state current=$current")
+            return
+        }
         Log.i(TAG, "core state=$state message=$message")
         when (state) {
             Mobile.StateStarting -> {
                 if (stopping) return
                 VpnBridge.set(VpnState.Connecting)
                 updateNotification("Connecting...")
+            }
+            Mobile.StateConnecting -> {
+                if (stopping) return
+                VpnBridge.set(VpnState.Connecting)
+                updateNotification("Verifying connection...")
             }
             Mobile.StateRunning -> {
                 if (stopping) return
@@ -158,10 +171,11 @@ class ShampooreVpnService : VpnService() {
                 updateNotification("Disconnecting...")
             }
             Mobile.StateError -> {
+                if (stopping) return
+                val msg = message.ifBlank { DEFAULT_CORE_ERROR }
                 
                 
-                if (!sessionRunning || stopping) return
-                stopVpn(errorMessage = message.ifBlank { DEFAULT_CORE_ERROR })
+                stopVpn(errorMessage = msg)
             }
             Mobile.StateIdle -> {
                 if (!sessionRunning || stopping) return

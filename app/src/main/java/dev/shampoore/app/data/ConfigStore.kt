@@ -24,6 +24,9 @@ data class VpnConfig(
     val subtitle: String
         get() = subtitleOverride ?: describeSource(source)
 
+    val isEncrypted: Boolean
+        get() = sourceHasEncryptionPassword(source)
+
     val isFromSubscription: Boolean
         get() = subscriptionId != null
 }
@@ -158,6 +161,32 @@ class ConfigStore(private val context: Context) {
         }
         return null
     }
+}
+
+internal fun sourceHasEncryptionPassword(source: String): Boolean {
+    val trimmed = source.trim()
+    if (trimmed.startsWith("{")) {
+        return try {
+            val obj = JSONObject(trimmed)
+            obj.optString("encryption_password").isNotEmpty() ||
+                obj.optJSONObject("advanced")
+                    ?.optString("encryption_password")
+                    ?.isNotEmpty() == true
+        } catch (_: Exception) {
+            false
+        }
+    }
+    if (trimmed.startsWith("shampoore://")) {
+        return try {
+            val q = parseQuery(URI(trimmed).rawQuery ?: "")
+            !q["pw"].isNullOrEmpty() || !q["encryption_password"].isNullOrEmpty()
+        } catch (_: Exception) {
+            val query = trimmed.substringAfter('?', "").substringBefore('#')
+            val q = parseQuery(query)
+            !q["pw"].isNullOrEmpty() || !q["encryption_password"].isNullOrEmpty()
+        }
+    }
+    return false
 }
 
 private fun describeSource(source: String): String {

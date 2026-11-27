@@ -98,8 +98,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             subscriptionRepository.reload()
             restoreSelectedConfig()
-            
-            subscriptionRepository.refreshStale()
         }
         viewModelScope.launch {
             configStore.configs.collect { validateSelection() }
@@ -528,12 +526,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     
-    fun refreshStaleSubscriptions() {
-        viewModelScope.launch {
-            subscriptionRepository.refreshStale()
-        }
-    }
-
     fun deleteSubscription(id: String) {
         viewModelScope.launch {
             val removed = subscriptionRepository.deleteSubscription(id)

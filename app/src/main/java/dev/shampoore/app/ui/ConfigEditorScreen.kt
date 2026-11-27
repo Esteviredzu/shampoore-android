@@ -21,7 +21,10 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
+import dev.shampoore.app.data.TransportField
 import dev.shampoore.app.data.TransportSchema
+import dev.shampoore.app.data.isBooleanTransportField
+import dev.shampoore.app.data.isVisibleInManualEditor
 import kotlinx.coroutines.delay
 import mobile.Mobile
 import org.json.JSONArray
@@ -32,7 +35,8 @@ private data class SubflowState(
     val kind: String,
     val fieldValues: Map<String, String>,
     val rateLimitKb: String,
-    val advancedJson: String = ""
+    val advancedJson: String = "",
+    val boolKeys: Set<String> = emptySet()
 )
 
 private data class ParsedConfig(
@@ -42,7 +46,8 @@ private data class ParsedConfig(
     val fields: Map<String, String>,
     val multiStrategy: String,
     val multiSubflows: List<SubflowState>,
-    val advancedJson: String
+    val advancedJson: String,
+    val baseJson: String = ""
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -68,6 +73,7 @@ fun ConfigEditorScreen(
     var fieldValues by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
     var password by remember { mutableStateOf("") }
     var advancedJson by remember { mutableStateOf("") }
+    var baseJson by remember { mutableStateOf("") }
 
     var multiStrategy by remember { mutableStateOf("flowmux") }
     var multiSubflows by remember { mutableStateOf<List<SubflowState>>(emptyList()) }
@@ -85,6 +91,7 @@ fun ConfigEditorScreen(
         password = parsed.password
         fieldValues = parsed.fields
         advancedJson = parsed.advancedJson
+        baseJson = parsed.baseJson
         if (parsed.kind == "multi") {
             multiStrategy = parsed.multiStrategy
             multiSubflows = parsed.multiSubflows
@@ -111,24 +118,46 @@ fun ConfigEditorScreen(
     val saveEnabled = when {
         isMulti -> multiSubflows.isNotEmpty()
         currentSchema == null -> false
-        currentSchema.fields.isEmpty() -> true
-        else -> currentSchema.fields.filter { it.required }
-            .all { fieldValues[it.key]?.isNotBlank() == true }
+        else -> {
+            val visibleFields = currentSchema.fields.filter { it.isVisibleInManualEditor() }
+            visibleFields.isEmpty() || visibleFields
+                .filter { it.required && !isBooleanTransportField(it, fieldValues[it.key] ?: "") }
+                .all { fieldValues[it.key]?.isNotBlank() == true }
+        }
     }
 
     fun buildSource(): String {
-        val root = JSONObject()
+        val root = if (baseJson.isNotBlank()) {
+            try {
+                JSONObject(baseJson)
+            } catch (_: Exception) {
+                JSONObject()
+            }
+        } else {
+            JSONObject()
+        }
+
+        root.remove("name")
         if (name.isNotBlank()) root.put("name", name)
         root.put("type", selectedKind)
 
+        root.remove("transport")
         if (isMulti) {
             val transportsArr = JSONArray()
             multiSubflows.forEach { sub ->
                 val subObj = JSONObject()
                 subObj.put("type", sub.kind)
+                val subSchema = flatSchemas.find { it.kind == sub.kind }
                 val subTransport = JSONObject()
                 sub.fieldValues.forEach { (k, v) ->
-                    if (v.isNotBlank()) subTransport.put(k, v)
+                    if (v.isNotBlank()) {
+                        subTransport.putFieldValue(
+                            key = k,
+                            value = v,
+                            field = subSchema?.fields?.find { it.key == k },
+                            forceBoolean = k in sub.boolKeys
+                        )
+                    }
                 }
                 subObj.put("transport", subTransport)
                 if (sub.advancedJson.isNotBlank()) {
@@ -146,11 +175,24 @@ fun ConfigEditorScreen(
                 put("transports", transportsArr)
             })
         } else {
+            val baseTransport = try {
+                JSONObject(baseJson).optJSONObject("transport")
+            } catch (_: Exception) {
+                null
+            }
             val transport = JSONObject()
             fieldValues.forEach { (k, v) ->
-                if (v.isNotBlank()) transport.put(k, v)
+                if (v.isNotBlank()) {
+                    transport.putFieldValue(
+                        key = k,
+                        value = v,
+                        field = currentSchema?.fields?.find { it.key == k },
+                        forceBoolean = baseTransport?.opt(k) is Boolean
+                    )
+                }
             }
             root.put("transport", transport)
+            root.remove("advanced")
             if (advancedJson.isNotBlank()) {
                 try {
                     root.put("advanced", JSONObject(advancedJson))
@@ -158,6 +200,7 @@ fun ConfigEditorScreen(
                 }
             }
         }
+        root.remove("encryption_password")
         if (password.isNotBlank()) root.put("encryption_password", password)
         return root.toString()
     }
@@ -300,39 +343,24 @@ private fun FormContent(
                 subflows = multiSubflows,
                 onSubflowsChange = onMultiSubflowsChange
             )
-        } else if (currentSchema != null && currentSchema.fields.isNotEmpty()) {
+        } else if (currentSchema != null &&
+            currentSchema.fields.any { it.isVisibleInManualEditor() }
+        ) {
             Text(
                 "Transport parameters",
                 style = MaterialTheme.typography.titleSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(top = 8.dp)
             )
-            currentSchema.fields.forEach { field ->
-                val value = fieldValues[field.key] ?: ""
-                OutlinedTextField(
-                    value = value,
-                    onValueChange = { onFieldChange(field.key, it) },
-                    label = {
-                        Text(if (field.required) "${field.label} *" else field.label)
-                    },
-                    placeholder = if (field.placeholder.isNotEmpty()) {
-                        { Text(field.placeholder) }
-                    } else null,
-                    supportingText = if (field.hint.isNotEmpty()) {
-                        { Text(field.hint) }
-                    } else null,
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(16.dp),
-                    singleLine = true,
-                    visualTransformation = if (field.type == "password") {
-                        PasswordVisualTransformation()
-                    } else VisualTransformation.None,
-                    keyboardOptions = KeyboardOptions(
-                        keyboardType = if (field.type == "password") KeyboardType.Password
-                        else KeyboardType.Text
+            currentSchema.fields
+                .filter { it.isVisibleInManualEditor() }
+                .forEach { field ->
+                    TransportFieldEditor(
+                        field = field,
+                        value = fieldValues[field.key] ?: "",
+                        onValueChange = { onFieldChange(field.key, it) }
                     )
-                )
-            }
+                }
         }
 
         Text(
@@ -355,6 +383,88 @@ private fun FormContent(
 
         Spacer(Modifier.height(32.dp))
     }
+}
+
+@Composable
+private fun TransportFieldEditor(
+    field: TransportField,
+    value: String,
+    onValueChange: (String) -> Unit,
+    modifier: Modifier = Modifier,
+    shape: RoundedCornerShape = RoundedCornerShape(16.dp)
+) {
+    val labelText = if (field.required) "${field.label} *" else field.label
+    if (isBooleanTransportField(field, value)) {
+        Surface(
+            modifier = modifier.fillMaxWidth(),
+            shape = shape,
+            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+            tonalElevation = 1.dp
+        ) {
+            Row(
+                modifier = Modifier.padding(
+                    start = 20.dp,
+                    end = 16.dp,
+                    top = 10.dp,
+                    bottom = 10.dp
+                ),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = labelText,
+                        style = MaterialTheme.typography.bodyLarge
+                    )
+                    if (field.hint.isNotEmpty()) {
+                        Text(
+                            text = field.hint,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+                Spacer(Modifier.width(12.dp))
+                Switch(
+                    checked = value.equals("true", ignoreCase = true),
+                    onCheckedChange = { checked ->
+                        onValueChange(if (checked) "true" else "false")
+                    }
+                )
+            }
+        }
+    } else {
+        OutlinedTextField(
+            value = value,
+            onValueChange = onValueChange,
+            label = { Text(labelText) },
+            placeholder = if (field.placeholder.isNotEmpty()) {
+                { Text(field.placeholder) }
+            } else null,
+            supportingText = if (field.hint.isNotEmpty()) {
+                { Text(field.hint) }
+            } else null,
+            modifier = modifier.fillMaxWidth(),
+            shape = shape,
+            singleLine = true,
+            visualTransformation = if (field.type == "password") {
+                PasswordVisualTransformation()
+            } else VisualTransformation.None,
+            keyboardOptions = KeyboardOptions(
+                keyboardType = if (field.type == "password") KeyboardType.Password
+                else KeyboardType.Text
+            )
+        )
+    }
+}
+
+private fun JSONObject.putFieldValue(
+    key: String,
+    value: String,
+    field: TransportField?,
+    forceBoolean: Boolean
+) {
+    val asBoolean = forceBoolean || (field != null && isBooleanTransportField(field, value))
+    put(key, if (asBoolean) value.equals("true", ignoreCase = true) else value)
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -607,40 +717,23 @@ private fun SubflowCard(
 
             Spacer(Modifier.height(12.dp))
 
-            schema?.fields?.forEach { field ->
-                val value = subflow.fieldValues[field.key] ?: ""
-                OutlinedTextField(
-                    value = value,
-                    onValueChange = { newVal ->
-                        onChange(
-                            subflow.copy(
-                                fieldValues = subflow.fieldValues + (field.key to newVal)
+            schema?.fields
+                ?.filter { it.isVisibleInManualEditor() }
+                ?.forEach { field ->
+                    TransportFieldEditor(
+                        field = field,
+                        value = subflow.fieldValues[field.key] ?: "",
+                        onValueChange = { newVal ->
+                            onChange(
+                                subflow.copy(
+                                    fieldValues = subflow.fieldValues + (field.key to newVal)
+                                )
                             )
-                        )
-                    },
-                    label = {
-                        Text(if (field.required) "${field.label} *" else field.label)
-                    },
-                    placeholder = if (field.placeholder.isNotEmpty()) {
-                        { Text(field.placeholder) }
-                    } else null,
-                    supportingText = if (field.hint.isNotEmpty()) {
-                        { Text(field.hint) }
-                    } else null,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(bottom = 8.dp),
-                    shape = RoundedCornerShape(12.dp),
-                    singleLine = true,
-                    visualTransformation = if (field.type == "password") {
-                        PasswordVisualTransformation()
-                    } else VisualTransformation.None,
-                    keyboardOptions = KeyboardOptions(
-                        keyboardType = if (field.type == "password") KeyboardType.Password
-                        else KeyboardType.Text
+                        },
+                        modifier = Modifier.padding(bottom = 8.dp),
+                        shape = RoundedCornerShape(12.dp)
                     )
-                )
-            }
+                }
 
             OutlinedTextField(
                 value = subflow.rateLimitKb,
@@ -741,6 +834,7 @@ private fun parseQrPayload(raw: String, schemas: List<TransportSchema>): ParsedC
     var strategy = "flowmux"
     var subflows: List<SubflowState> = emptyList()
     var advancedJson = ""
+    var baseJson = ""
 
     when {
         trimmed.startsWith("{") -> {
@@ -749,6 +843,7 @@ private fun parseQrPayload(raw: String, schemas: List<TransportSchema>): ParsedC
             } catch (e: Exception) {
                 throw IllegalArgumentException("Source contains invalid JSON")
             }
+            baseJson = obj.toString()
             name = obj.optString("name", "")
             kind = obj.optString("type", "")
             password = obj.optString("encryption_password", "")
@@ -766,9 +861,12 @@ private fun parseQrPayload(raw: String, schemas: List<TransportSchema>): ParsedC
                     if (arr != null) {
                         for (i in 0 until arr.length()) {
                             val sub = arr.optJSONObject(i) ?: continue
+                            val subTransport = sub.optJSONObject("transport")
                             val subFields = mutableMapOf<String, String>()
-                            sub.optJSONObject("transport")?.keys()?.forEach { k ->
-                                subFields[k] = sub.optJSONObject("transport")?.optString(k, "") ?: ""
+                            val boolKeys = mutableSetOf<String>()
+                            subTransport?.keys()?.forEach { k ->
+                                subFields[k] = subTransport.optString(k, "")
+                                if (subTransport.opt(k) is Boolean) boolKeys.add(k)
                             }
                             val subAdv = sub.optJSONObject("advanced")?.toString() ?: ""
                             list.add(
@@ -776,7 +874,8 @@ private fun parseQrPayload(raw: String, schemas: List<TransportSchema>): ParsedC
                                     kind = sub.optString("type", ""),
                                     fieldValues = subFields,
                                     rateLimitKb = sub.optInt("rate_limit_kb", 0).toString(),
-                                    advancedJson = subAdv
+                                    advancedJson = subAdv,
+                                    boolKeys = boolKeys
                                 )
                             )
                         }
@@ -857,6 +956,7 @@ private fun parseQrPayload(raw: String, schemas: List<TransportSchema>): ParsedC
         fields = fields,
         multiStrategy = strategy,
         multiSubflows = subflows,
-        advancedJson = advancedJson
+        advancedJson = advancedJson,
+        baseJson = baseJson
     )
 }

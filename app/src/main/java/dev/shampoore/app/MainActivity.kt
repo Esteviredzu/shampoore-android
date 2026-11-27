@@ -14,6 +14,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -23,20 +24,23 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.shampoore.app.data.AddConfigInput
 import dev.shampoore.app.data.AddConfigInputClassifier
+import dev.shampoore.app.data.SettingsStore
 import dev.shampoore.app.data.VpnConfig
 import dev.shampoore.app.ui.AddConfigChooserScreen
 import dev.shampoore.app.ui.ConnectScreen
 import dev.shampoore.app.ui.ConfigEditorScreen
 import dev.shampoore.app.ui.RulesScreen
+import dev.shampoore.app.ui.SettingsScreen
 import dev.shampoore.app.ui.StatsScreen
 import dev.shampoore.app.ui.theme.ShampooreTheme
 import dev.shampoore.app.viewmodel.MainViewModel
 import dev.shampoore.app.vpn.ShampooreVpnService
 import dev.shampoore.app.vpn.VpnBridge
 import dev.shampoore.app.vpn.VpnState
+import kotlinx.coroutines.launch
 
 enum class AppScreen {
-    MAIN, STATS, RULES, ADD_CHOOSER, EDITOR_ADD, EDITOR_EDIT
+    MAIN, STATS, RULES, SETTINGS, ADD_CHOOSER, EDITOR_ADD, EDITOR_EDIT
 }
 
 class MainActivity : ComponentActivity() {
@@ -61,25 +65,50 @@ class MainActivity : ComponentActivity() {
             val stats by viewModel.stats.collectAsStateWithLifecycle()
             val configs by viewModel.configs.collectAsStateWithLifecycle()
 
+            val settingsStore = remember { SettingsStore(applicationContext) }
+            val scope = rememberCoroutineScope()
+            val themeMode by settingsStore.themeMode.collectAsStateWithLifecycle(
+                initialValue = SettingsStore.THEME_MODE_SYSTEM
+            )
+            val dynamicColor by settingsStore.dynamicColor.collectAsStateWithLifecycle(
+                initialValue = true
+            )
+
             var currentScreen by remember { mutableStateOf(AppScreen.MAIN) }
+            var backTarget by remember { mutableStateOf(AppScreen.MAIN) }
             var editingConfig by remember { mutableStateOf<VpnConfig?>(null) }
             var prefilledSource by remember { mutableStateOf<String?>(null) }
 
+            fun navigateTo(screen: AppScreen) {
+                backTarget = currentScreen
+                currentScreen = screen
+            }
+
+            fun navigateBack() {
+                currentScreen = backTarget
+                backTarget = AppScreen.MAIN
+            }
+
             BackHandler(enabled = currentScreen != AppScreen.MAIN) {
                 when (currentScreen) {
-                    AppScreen.STATS        -> currentScreen = AppScreen.MAIN
-                    AppScreen.RULES        -> currentScreen = AppScreen.MAIN
                     AppScreen.ADD_CHOOSER  -> currentScreen = AppScreen.MAIN
                     AppScreen.EDITOR_ADD   -> {
                         prefilledSource = null
                         currentScreen = AppScreen.ADD_CHOOSER
                     }
                     AppScreen.EDITOR_EDIT  -> currentScreen = AppScreen.MAIN
-                    AppScreen.MAIN         -> Unit
+                    else                   -> navigateBack()
                 }
             }
 
-            ShampooreTheme {
+            ShampooreTheme(
+                darkTheme = when (themeMode) {
+                    SettingsStore.THEME_MODE_LIGHT -> false
+                    SettingsStore.THEME_MODE_DARK -> true
+                    else -> isSystemInDarkTheme()
+                },
+                dynamicColor = dynamicColor
+            ) {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
@@ -96,8 +125,7 @@ class MainActivity : ComponentActivity() {
                                 viewModel = viewModel,
                                 onConnect = ::requestVpnPermissionAndStart,
                                 onDisconnect = ::stopVpn,
-                                onOpenStats = { currentScreen = AppScreen.STATS },
-                                onOpenRules = { currentScreen = AppScreen.RULES },
+                                onOpenSettings = { navigateTo(AppScreen.SETTINGS) },
                                 onOpenAdd = {
                                     prefilledSource = null
                                     currentScreen = AppScreen.ADD_CHOOSER
@@ -110,8 +138,26 @@ class MainActivity : ComponentActivity() {
 
                             AppScreen.STATS -> StatsScreen(
                                 stats = stats,
-                                onBack = { currentScreen = AppScreen.MAIN }
+                                onBack = { navigateBack() }
                             )
+
+                            AppScreen.SETTINGS -> {
+                                val rulesList by viewModel.rules.collectAsStateWithLifecycle()
+                                SettingsScreen(
+                                    themeMode = themeMode,
+                                    dynamicColor = dynamicColor,
+                                    activeRules = rulesList.count { it.enabled },
+                                    onThemeModeChange = { mode ->
+                                        scope.launch { settingsStore.setThemeMode(mode) }
+                                    },
+                                    onDynamicColorChange = { enabled ->
+                                        scope.launch { settingsStore.setDynamicColor(enabled) }
+                                    },
+                                    onOpenRules = { navigateTo(AppScreen.RULES) },
+                                    onOpenStats = { navigateTo(AppScreen.STATS) },
+                                    onBack = { navigateBack() }
+                                )
+                            }
 
                             AppScreen.RULES -> {
                                 val rulesList by viewModel.rules.collectAsStateWithLifecycle()
@@ -137,7 +183,7 @@ class MainActivity : ComponentActivity() {
                                     appRulesUpdating = appRulesUpdating,
                                     installedApps = installedApps,
                                     installedAppsLoading = installedAppsLoading,
-                                    onBack = { currentScreen = AppScreen.MAIN },
+                                    onBack = { navigateBack() },
                                     onToggleRule = { name, enabled -> viewModel.setRuleEnabled(name, enabled) },
                                     onDeleteRule = { name -> viewModel.deleteRule(name) },
                                     onImportFile = { uri, name -> viewModel.importRuleFile(uri, name) },

@@ -1,20 +1,21 @@
 package dev.shampoore.app.ui
 
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
-import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.Edit
-import androidx.compose.material.icons.rounded.QueryStats
-import androidx.compose.material.icons.rounded.Shield
+import androidx.compose.material.icons.rounded.ErrorOutline
+import androidx.compose.material.icons.rounded.Lock
+import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -22,15 +23,19 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.shampoore.app.data.SubscriptionRecord
 import dev.shampoore.app.data.VpnConfig
+import dev.shampoore.app.data.routeTransportLabel
 import dev.shampoore.app.data.toVpnConfigs
 import dev.shampoore.app.viewmodel.MainViewModel
 import dev.shampoore.app.vpn.VpnState
+import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -38,8 +43,7 @@ fun ConnectScreen(
     viewModel: MainViewModel,
     onConnect: (String) -> Unit,
     onDisconnect: () -> Unit,
-    onOpenStats: () -> Unit,
-    onOpenRules: () -> Unit,
+    onOpenSettings: () -> Unit,
     onOpenAdd: () -> Unit,
     onOpenEdit: (VpnConfig) -> Unit
 ) {
@@ -48,6 +52,7 @@ fun ConnectScreen(
     val selectedConfig by viewModel.selectedConfig.collectAsStateWithLifecycle()
 
     var showConfigSheet by remember { mutableStateOf(false) }
+    val configSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var expandedGroups by remember { mutableStateOf<Set<String>>(emptySet()) }
     var pendingDelete by remember { mutableStateOf<SubscriptionRecord?>(null) }
 
@@ -63,10 +68,6 @@ fun ConnectScreen(
             snackbarHostState.showSnackbar(message)
             viewModel.clearSubscriptionMessage()
         }
-    }
-
-    LaunchedEffect(showConfigSheet) {
-        if (showConfigSheet) viewModel.refreshStaleSubscriptions()
     }
 
     LaunchedEffect(showConfigSheet, selectedConfig, subscriptions) {
@@ -121,23 +122,13 @@ fun ConnectScreen(
                 title = { Text("Shampoore", style = MaterialTheme.typography.titleLarge) },
                 actions = {
                     FilledTonalIconButton(
-                        onClick = onOpenRules,
+                        onClick = onOpenSettings,
                         colors = IconButtonDefaults.filledTonalIconButtonColors(
                             containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
                             contentColor = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     ) {
-                        Icon(Icons.Rounded.Shield, contentDescription = "Rules")
-                    }
-                    Spacer(Modifier.width(8.dp))
-                    FilledTonalIconButton(
-                        onClick = onOpenStats,
-                        colors = IconButtonDefaults.filledTonalIconButtonColors(
-                            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-                            contentColor = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    ) {
-                        Icon(Icons.Rounded.QueryStats, contentDescription = "Statistics")
+                        Icon(Icons.Rounded.Settings, contentDescription = "Settings")
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -157,25 +148,43 @@ fun ConnectScreen(
             Spacer(modifier = Modifier.weight(1f))
 
             
-            val gradientColors = when {
-                isConnected -> listOf(
-                    MaterialTheme.colorScheme.primary,
-                    MaterialTheme.colorScheme.tertiary
-                )
-                !buttonEnabled -> listOf(
-                    MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
-                    MaterialTheme.colorScheme.surface.copy(alpha = 0.3f)
-                )
-                else -> listOf(
-                    MaterialTheme.colorScheme.surfaceVariant,
-                    MaterialTheme.colorScheme.surface
-                )
+            val isError = vpnState is VpnState.Error
+
+            val gradientStartTarget = when {
+                isConnected -> MaterialTheme.colorScheme.primary
+                isError -> MaterialTheme.colorScheme.errorContainer
+                !buttonEnabled -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
+                else -> MaterialTheme.colorScheme.surfaceVariant
             }
-            val iconTint = when {
+            val gradientEndTarget = when {
+                isConnected -> MaterialTheme.colorScheme.tertiary
+                isError -> MaterialTheme.colorScheme.surface
+                !buttonEnabled -> MaterialTheme.colorScheme.surface.copy(alpha = 0.3f)
+                else -> MaterialTheme.colorScheme.surface
+            }
+            val gradientStart by animateColorAsState(
+                targetValue = gradientStartTarget,
+                animationSpec = tween(300),
+                label = "circleGradientStart"
+            )
+            val gradientEnd by animateColorAsState(
+                targetValue = gradientEndTarget,
+                animationSpec = tween(300),
+                label = "circleGradientEnd"
+            )
+            val gradientColors = listOf(gradientStart, gradientEnd)
+
+            val iconTintTarget = when {
                 isConnected -> MaterialTheme.colorScheme.onPrimary
+                isError -> MaterialTheme.colorScheme.error
                 !buttonEnabled -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
                 else -> MaterialTheme.colorScheme.onSurfaceVariant
             }
+            val iconTint by animateColorAsState(
+                targetValue = iconTintTarget,
+                animationSpec = tween(300),
+                label = "circleIconTint"
+            )
 
             Box(
                 contentAlignment = Alignment.Center,
@@ -199,14 +208,21 @@ fun ConnectScreen(
                     }
             ) {
                 if (isConnecting || isDisconnecting) {
+                    
+                    
                     CircularProgressIndicator(
                         modifier = Modifier.size(80.dp),
                         color = MaterialTheme.colorScheme.primary,
-                        strokeWidth = 6.dp
+                        strokeWidth = 4.dp
                     )
                 } else {
+                    val icon = when {
+                        isConnected -> Icons.Rounded.Lock
+                        isError -> Icons.Rounded.ErrorOutline
+                        else -> Icons.Filled.PowerSettingsNew
+                    }
                     Icon(
-                        imageVector = if (isConnected) Icons.Filled.Shield else Icons.Filled.PowerSettingsNew,
+                        imageVector = icon,
                         contentDescription = "Connect",
                         modifier = Modifier.size(90.dp),
                         tint = iconTint
@@ -321,68 +337,71 @@ fun ConnectScreen(
     if (showConfigSheet) {
         ModalBottomSheet(
             onDismissRequest = { showConfigSheet = false },
+            sheetState = configSheetState,
             containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
             shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)
         ) {
-            Column {
-                LazyColumn(
-                    modifier = Modifier.fillMaxWidth(),
-                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 8.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    if (subscriptionGroups.isNotEmpty()) {
-                        item { SectionTitle("Subscriptions") }
-                        subscriptionGroups.forEach { (record, routes) ->
-                            val groupId = record.subscription.id
-                            item(key = "sub_$groupId") {
-                                SubscriptionGroupCard(
-                                    subscription = record.subscription,
-                                    routes = routes,
-                                    refreshing = groupId in subscriptionRefreshing,
-                                    expanded = groupId in expandedGroups,
-                                    selectedSource = selectedConfig?.source,
-                                    selectedSubscriptionId = selectedConfig?.subscriptionId,
-                                    onToggle = {
-                                        expandedGroups = if (groupId in expandedGroups) {
-                                            expandedGroups - groupId
-                                        } else {
-                                            expandedGroups + groupId
-                                        }
-                                    },
-                                    onRouteSelect = { route -> selectProfile(route) },
-                                    onRefresh = { viewModel.refreshSubscription(groupId) },
-                                    onDelete = { pendingDelete = record }
+            LazyColumn(
+                modifier = Modifier.fillMaxWidth(),
+                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                if (subscriptionGroups.isNotEmpty()) {
+                    item { SectionTitle("Subscriptions") }
+                    subscriptionGroups.forEach { (record, routes) ->
+                        val groupId = record.subscription.id
+                        item(key = "sub_$groupId") {
+                            SubscriptionGroupCard(
+                                subscription = record.subscription,
+                                routes = routes,
+                                refreshing = groupId in subscriptionRefreshing,
+                                expanded = groupId in expandedGroups,
+                                selectedSource = selectedConfig?.source,
+                                selectedSubscriptionId = selectedConfig?.subscriptionId,
+                                onToggle = {
+                                    expandedGroups = if (groupId in expandedGroups) {
+                                        expandedGroups - groupId
+                                    } else {
+                                        expandedGroups + groupId
+                                    }
+                                },
+                                onRouteSelect = { route -> selectProfile(route) },
+                                onRefresh = { viewModel.refreshSubscription(groupId) },
+                                onDelete = { pendingDelete = record }
+                            )
+                        }
+                    }
+                }
+
+                item { SectionTitle("Local configurations") }
+                if (configs.isEmpty()) {
+                    item {
+                        Text(
+                            text = "No local configurations",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(vertical = 8.dp)
+                        )
+                    }
+                } else {
+                    item(key = "local_configs") {
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            configs.forEach { config ->
+                                ConfigPill(
+                                    config = config,
+                                    selected = config.source == selectedConfig?.source &&
+                                        selectedConfig?.subscriptionId == null,
+                                    onSelect = { selectProfile(config) },
+                                    onEdit = {
+                                        showConfigSheet = false
+                                        onOpenEdit(config)
+                                    }
                                 )
                             }
                         }
                     }
-
-                    item { SectionTitle("Local configurations") }
-                    if (configs.isEmpty()) {
-                        item {
-                            Text(
-                                text = "No local configurations",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(vertical = 8.dp)
-                            )
-                        }
-                    } else {
-                        items(configs, key = { it.source }) { config ->
-                            ConfigPill(
-                                config = config,
-                                selected = config.source == selectedConfig?.source &&
-                                    selectedConfig?.subscriptionId == null,
-                                onSelect = { selectProfile(config) },
-                                onEdit = {
-                                    showConfigSheet = false
-                                    onOpenEdit(config)
-                                }
-                            )
-                        }
-                    }
-                    item { Spacer(modifier = Modifier.height(24.dp)) }
                 }
+                item { Spacer(modifier = Modifier.height(24.dp)) }
             }
         }
     }
@@ -428,8 +447,9 @@ fun ConnectScreen(
 private fun SectionTitle(text: String) {
     Text(
         text = text,
-        style = MaterialTheme.typography.titleSmall,
+        style = MaterialTheme.typography.labelLarge,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
+        letterSpacing = 0.6.sp,
         modifier = Modifier.padding(top = 16.dp, bottom = 4.dp, start = 4.dp)
     )
 }
@@ -441,51 +461,110 @@ fun ConfigPill(
     onSelect: () -> Unit,
     onEdit: () -> Unit,
 ) {
-    val containerColor = if (selected)
-        MaterialTheme.colorScheme.primaryContainer
-    else
-        MaterialTheme.colorScheme.surfaceContainerHighest
-    val contentColor = if (selected)
-        MaterialTheme.colorScheme.onPrimaryContainer
-    else
-        MaterialTheme.colorScheme.onSurface
+    val shapeProgress by animateFloatAsState(
+        targetValue = if (selected) 1f else 0f,
+        animationSpec = spring(dampingRatio = 0.7f, stiffness = 500f),
+        label = "configShape"
+    )
+    val containerColor by animateColorAsState(
+        targetValue = if (selected) {
+            MaterialTheme.colorScheme.primaryContainer
+        } else {
+            MaterialTheme.colorScheme.surfaceContainerHigh
+        },
+        animationSpec = tween(220),
+        label = "configContainer"
+    )
+    val contentColor by animateColorAsState(
+        targetValue = if (selected) {
+            MaterialTheme.colorScheme.onPrimaryContainer
+        } else {
+            MaterialTheme.colorScheme.onSurface
+        },
+        animationSpec = tween(220),
+        label = "configContent"
+    )
+    val subtitleColor = if (selected) {
+        MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.75f)
+    } else {
+        MaterialTheme.colorScheme.onSurfaceVariant
+    }
+    val badge = remember(config.source) { routeTransportLabel(config.source) }
 
     Surface(
         onClick = onSelect,
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(50),
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = 56.dp),
+        shape = RoundedCornerShape(percent = (32f + 18f * shapeProgress).roundToInt()),
         color = containerColor,
         contentColor = contentColor,
-        tonalElevation = if (selected) 4.dp else 0.dp
+        tonalElevation = 0.dp
     ) {
         Row(
-            modifier = Modifier.padding(start = 20.dp, end = 4.dp, top = 10.dp, bottom = 10.dp),
-            verticalAlignment = Alignment.CenterVertically
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             if (selected) {
                 Icon(
-                    imageVector = Icons.Rounded.Check,
+                    imageVector = Icons.Rounded.CheckCircle,
                     contentDescription = null,
-                    modifier = Modifier.padding(end = 12.dp)
+                    modifier = Modifier.size(22.dp),
+                    tint = MaterialTheme.colorScheme.primary
                 )
             }
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = config.name,
                     style = MaterialTheme.typography.titleMedium,
+                    fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
                 Text(
                     text = config.subtitle,
                     style = MaterialTheme.typography.bodySmall,
-                    color = contentColor.copy(alpha = 0.7f),
+                    color = subtitleColor,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
             }
-            IconButton(onClick = onEdit) {
-                Icon(Icons.Rounded.Edit, contentDescription = "Edit")
+            if (config.isEncrypted) {
+                Icon(
+                    imageVector = Icons.Rounded.Lock,
+                    contentDescription = "Encrypted",
+                    modifier = Modifier.size(14.dp),
+                    tint = if (selected) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    }
+                )
+            }
+            TransportBadge(label = badge)
+            FilledTonalIconButton(
+                onClick = onEdit,
+                modifier = Modifier.size(36.dp),
+                shape = CircleShape,
+                colors = IconButtonDefaults.filledTonalIconButtonColors(
+                    containerColor = if (selected) {
+                        MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+                    } else {
+                        MaterialTheme.colorScheme.surfaceContainerHighest
+                    },
+                    contentColor = if (selected) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    }
+                )
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.Edit,
+                    contentDescription = "Edit",
+                    modifier = Modifier.size(18.dp)
+                )
             }
         }
     }
