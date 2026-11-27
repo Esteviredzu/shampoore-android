@@ -14,6 +14,7 @@
 .cxx
 local.properties
 *.aar
+.kotlin/
 /app/libs/shampoore.aar
 /app/libs/shampoore.aar.version
 /app/libs/shampoore.aar.tmp
